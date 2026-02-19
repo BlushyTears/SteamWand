@@ -2,11 +2,12 @@
 
 #include <iostream>
 
-#include "Header.h"
+#include "Dcs.h"
 
 int main()
 {
-    Hello h;
+    DataBlock<int> db;
 
-    std::cout << "Hello World! " << h.x;
+
+    std::cout << "Hello World! " << db.Data[0];
 }
