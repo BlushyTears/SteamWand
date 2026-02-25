@@ -9,6 +9,8 @@
 
 - Built-in optimization: If a user decides that the pc has extra compute: Premptive optimizations such as defragmentation can be requested to gradually occur.
 
-- Job-based-like architecture: Everything is a job, but the added syntax changes should be minimal (One current consideration is if jobs should be something the user decides to opt for or not).
+- Should use a queue-based approach with tags for dealing with concurrency. If two tasks have different tasks
+  (The programmer determined they're not dependent on each other, then two different threads can compute these independently).
+  One consideration is if there should be one queue or multiple queues, split up based on cores.
 
 - Should use Some modern C++ features such as coroutines, constexpr, metaprogramming, iterators for querying data where deemed beneficial.
