@@ -89,5 +89,5 @@ struct Health { float current, max; };
 inline std::ostream& operator<<(std::ostream& os, const Health& h) { 
     return os << h.current << "/" << h.max; 
 }
-using AtomTypes = std::tuple<int32_t, float, Vec2, Vec3, int, Health>;
+using AtomTypes = std::tuple<int32_t, float, Vec2, Vec3, int, Health>; // Health added to the back here
 ```
