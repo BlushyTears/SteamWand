@@ -1,16 +1,132 @@
-# SteamWand
-- A modular, flexible, performant engine based on axiomatic principles. All data is stored in one giant, fixed-sized array, where data is sorted by usage frequency. Earlier elements might have player data, whilst later elements might include some boss data. In case your grow out of your bounds, a linked list might be used to create a new similar array at runtime. The philosophical principle is that we sacrifice storage for better runtime performance.
+# DCS Engine
 
-- Everything should be broken down into essential primitives. A character might have some set of fields which points to a huge region where the data is stored. If the user wants, he may opt to cache that data for the price of extra storage, for reduced time complexity. You can attatch or detatch data in any way, shape or form in a data-driven inspired approach. You might have 100 zombies that are alike, and then you might decide you want a boss zombie which can take all the normal zombie fields, eject some unused fields and add some new specialized ones all at your disposal. Additionally, it should be possible (if the user allows) to: combine and concatenate modules based on their axiomatic representations.
+A modular, data-driven C++ engine built on axiomatic composition. Everything is an atom. Entities are whatever you make them.
 
-- Pay for what you use (Plug n play): All systems are decoupled so that if you only want to use some parts, you only use those.
+---
 
-- Realtime-scripting (lua). Ability to change game-related data without having to recompile or even build the engine (You should only need to compile if you import/update a new/existing library/module).
+## Core Philosophy
 
-- Built-in optimization: If a user decides that the pc has extra compute: Premptive optimizations such as defragmentation can be requested to gradually occur.
+- **Pay for what you use** — systems are decoupled, slabs are per-type, nothing is allocated until you ask for it
+- **Compose freely** — entities are bags of typed atoms, no inheritance, no schema
+- **Recompile only when the type system changes** — everything else is runtime
 
-- Should use a queue-based approach with tags for dealing with concurrency. If two tasks have different tasks
-  (The programmer determined they're not dependent on each other, then two different threads can compute these independently).
-  One consideration is if there should be one queue or multiple queues, split up based on cores.
+---
 
-- Should use Some modern C++ features such as coroutines, constexpr, metaprogramming, iterators for querying data where deemed beneficial.
+## Core Data Model
+
+All data lives in a `World` — a collection of per-type slabs, one contiguous array per type registered in `AtomTypes`.
+
+```cpp
+using AtomTypes = std::tuple<int32_t, float, Vec2, Vec3, int>;
+```
+
+Adding a new type costs one line. Each slab is fixed-size, stack-allocated, and cache-friendly. `iter<T>` is a pure linear scan with no branching.
+
+---
+
+## Entities & Composition
+
+Entities are `vector<AtomBase*>` — bags of typed atoms composed freely at runtime.
+
+```cpp
+World<1024> world;
+
+std::vector<AtomBase*> zombie = {
+    world.create(int32_t(100)),  // hp
+    world.create(3.5f),          // speed
+    world.create(int(3))         // wealth
+};
+```
+
+A boss zombie can clone a normal zombie, eject unused atoms, and add new ones — all without knowing types at the call site:
+
+```cpp
+auto boss = clone_entity(world, zombie);
+world.free_entity(zombie);
+```
+
+---
+
+## API
+
+```cpp
+// Creation & destruction
+world.create(Vec3{ 1, 2, 3 });
+world.free<Vec3>(atom);
+world.free_entity(entity);
+
+// Typed access
+world.value_of<int>(atom) = 5;
+
+// Iteration — pure linear scan per type
+world.iter<Vec3>([](Vec3& v) { ... });
+
+// Runtime type discovery
+world.print(atom);
+world.dispatch(atom, [](auto& v) { ... });
+
+// Memory management
+world.clear();        // arena-style nuke, O(1)
+world.pop<Vec3>(20);  // remove last N of a type
+```
+
+---
+
+## Memory Model
+
+| Strategy | Use case |
+|---|---|
+| `clear()` | Frame-local entities, O(1) reset |
+| `free_entity()` | Individual removal via swap-and-pop |
+| Multiple worlds | Persistence tiers — permanent vs transient |
+
+```cpp
+World<1024> persistent; // lives forever
+World<1024> transient;  // cleared every frame
+```
+
+---
+
+## Scripting (Lua)
+
+`dispatch` is the natural Lua bridge — push any atom to Lua without knowing its type at the C++ call site, pull values back by tag. Game data changes without recompilation. Only new types in `AtomTypes` require a rebuild.
+
+```cpp
+void push_to_lua(lua_State* L, AtomBase* atom) {
+    world.dispatch(atom, [&](auto& v) {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, int32_t>)
+            lua_pushinteger(L, v);
+        else if constexpr (std::is_same_v<T, float>)
+            lua_pushnumber(L, v);
+    });
+}
+```
+
+---
+
+## Planned
+
+- **Concurrency** — tagged task queues, decoupled per system, thread-safe slab access
+- **Coroutines** — deferred and async operations via C++20 coroutines
+- **Defragmentation** — background compaction when spare compute is available
+- **Overflow** — linked slab extension if capacity is exceeded at runtime
+- **Queries** — iterator-based multi-type querying via metaprogramming
+
+---
+
+## Adding a New Type
+
+1. Define your struct
+2. Add it to `AtomTypes`
+3. Define `operator<<` if you want `print` to support it
+
+```cpp
+struct Health { float current, max; };
+inline std::ostream& operator<<(std::ostream& os, const Health& h) { 
+    return os << h.current << "/" << h.max; 
+}
+using AtomTypes = std::tuple<int32_t, float, Vec2, Vec3, int, Health>;
+```
+
+That's it. No registration, no boilerplate.
