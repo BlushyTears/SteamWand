@@ -86,18 +86,6 @@ world.pop<Vec3>(20);  // remove last N of a type, also O(1)
 
 `dispatch` is the Lua bridge — push any atom to Lua without knowing its type at the C++ call site, pull values back by tag. Game data changes without recompilation. Only new types in `AtomTypes` require a rebuild.
 
-```cpp
-void push_to_lua(lua_State* L, AtomBase* atom) {
-    world.dispatch(atom, [&](auto& v) {
-        using T = std::decay_t<decltype(v)>;
-        if constexpr (std::is_same_v<T, int32_t>)
-            lua_pushinteger(L, v);
-        else if constexpr (std::is_same_v<T, float>)
-            lua_pushnumber(L, v);
-    });
-}
-```
-
 ---
 
 ## Planned
