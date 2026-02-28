@@ -72,8 +72,7 @@ world.pop<Vec3>(20);  // remove last N of a type, also O(1)
 
 ## Planned
 - **Automatic type deduction** — Somehow help with determining the type when we call get on an Atom (One idea is a static analyzer)
-- **Concurrency** — tagged task queues, decoupled per system, thread-safe slab access
-- **Coroutines** — Concurrency related
+- **Concurrency** — tagged task queues, decoupled per system, thread-safe slab access, using coroutines
 - **Defragmentation** — background compaction when spare compute is available
 - **Overflow** — linked slab extension if capacity is exceeded at runtime
 - **Queries** — iterator-based multi-type querying via metaprogramming
