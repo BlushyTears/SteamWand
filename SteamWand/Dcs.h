@@ -46,8 +46,8 @@ struct TypedSlab {
         T& get() { 
             return value;
          }
-        const T& get() const { return 
-            value;
+        const T& get() const { 
+            return value;
         }
     };
 

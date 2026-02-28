@@ -6,6 +6,11 @@ struct Zombie {
     AtomBase* speed;
 };
 
+// Todo: 
+// - Change create to not be O(N) for finding available slots
+// - Change Free to not be O(N) for freeing
+// - Remove active and only rely in bitset (Even if it loses the O(Active_count) performance)
+
 int main() {
     World<1024> world;
 
