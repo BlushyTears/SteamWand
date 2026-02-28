@@ -1,6 +1,6 @@
 # SteamWand
 
-#### A modular, data-driven C++ engine built on axiomatic composition. Everything is an 'atom' that resides in a defined 'World'. Entities are whatever you make them.
+#### A modular, data-driven C++ engine built on axiomatic composition. Everything is an 'atom' that resides in a defined 'World'.
 
 ---
 
