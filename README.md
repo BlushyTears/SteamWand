@@ -16,7 +16,7 @@ All data lives in a `World` — a collection of per-type slabs, one contiguous a
 ```cpp
 using AtomTypes = std::tuple<int32_t, float, Vec2, Vec3, int>;
 ```
-Adding a new type costs one line. Each slab is fixed-size, stack-allocated, and cache-friendly. `iter<T>` is a pure linear scan with no branching.
+Adding a new type costs one word. Each slab is fixed-size, stack-allocated, and cache-friendly. `iter<T>` is a pure linear scan with no branching.
 
 ---
 
