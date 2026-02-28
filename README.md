@@ -1,20 +1,26 @@
 # DCS Engine
 
 #### A modular, data-driven C++ engine built on axiomatic composition. Everything is an 'atom' that resides in a defined 'World'. Entities are whatever you make them.
+
 ---
+
 ## Core Philosophy
 - **Use one world or many worlds** - Either rapidly prototype with all data mashed into one world, or manage many worlds 
 - **Pay for what you use** — systems are decoupled, slabs are per-type for optimal cache locality, nothing is allocated until you ask for it
 - **Compose freely** — entities are bags of typed atoms, no inheritance, no schema
 - **Recompile only when the type system changes** — everything else is runtime
+- 
 ---
+
 ## Core Data Model
 All data lives in a `World` — a collection of per-type slabs, one contiguous array per type registered in `AtomTypes`.
 ```cpp
 using AtomTypes = std::tuple<int32_t, float, Vec2, Vec3, int>;
 ```
 Adding a new type costs one line. Each slab is fixed-size, stack-allocated, and cache-friendly. `iter<T>` is a pure linear scan with no branching.
+
 ---
+
 ## Entities & Composition
 Entities are `vector<AtomBase*>` — bags of typed atoms composed freely at runtime.
 ```cpp
@@ -30,7 +36,9 @@ A boss zombie can clone a normal zombie, eject unused atoms, and add new ones �
 auto boss = clone_entity(world, zombie);
 world.free_entity(zombie);
 ```
+
 ---
+
 ## API
 ```cpp
 // Creation & destruction
@@ -47,7 +55,9 @@ world.print(atom); (In C++, The user still needs to truly determine if it's an i
 world.clear();        // arena-style nuke, O(1)
 world.pop<Vec3>(20);  // remove last N of a type, also O(1)
 ```
+
 ---
+
 ## Memory Model
 | Strategy | Use case |
 |---|---|
@@ -57,7 +67,9 @@ world.pop<Vec3>(20);  // remove last N of a type, also O(1)
 ---
 ## Scripting (Lua)
 `dispatch` is the Lua bridge — push any atom to Lua without knowing its type at the C++ call site, pull values back by tag. Game data changes without recompilation. Only new types in `AtomTypes` require a rebuild.
+
 ---
+
 ## Planned
 - **Automatic type deduction** — Somehow help with determining the type when we call get on an Atom (One idea is a static analyzer)
 - **Concurrency** — tagged task queues, decoupled per system, thread-safe slab access
@@ -65,8 +77,10 @@ world.pop<Vec3>(20);  // remove last N of a type, also O(1)
 - **Defragmentation** — background compaction when spare compute is available
 - **Overflow** — linked slab extension if capacity is exceeded at runtime
 - **Queries** — iterator-based multi-type querying via metaprogramming
-- **Multi-Stream Buffer** for handling larger amount of repetitive data. 
+- **Multi-Stream Buffer** for handling larger amount of repetitive data.
+  
 ---
+
 ## Adding a New Type
 1. Define your struct
 2. Add it to `AtomTypes`
