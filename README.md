@@ -11,9 +11,6 @@
 - **Recompile only when the type system changes** — everything else is runtime
 ---
 
-## Why this over ECS?
-Steamwand is a Cache-friendly per-type storage with zero archetype overhead and a scripting bridge that doesn't require recompilation. Additionally you get javascript-like flexibility that is unheard of from conventional approaches.
-
 ## Core Data Model
 All data lives in a `World` — a collection of per-type slabs, one contiguous array per type registered in `AtomTypes`.
 ```cpp
@@ -69,6 +66,9 @@ world.pop<Vec3>(20);  // remove last N of a type, also O(1)
 ---
 ## Scripting (Lua)
 `dispatch` is the Lua bridge — push any atom to Lua without knowing its type at the C++ call site, pull values back by tag. Game data changes without recompilation. Only new types in `AtomTypes` require a rebuild.
+
+## Why this over ECS?
+SteamWand is a Cache-friendly per-type storage with zero archetype overhead and a scripting bridge that doesn't require recompilation. Additionally you get javascript-like flexibility that is unheard of from conventional approaches. The main downside (At least right now) on the C++ side, you need to keep track of the types. Print does help figuring out. In the future a static analyzer might be nice for this purpose.
 
 ---
 
