@@ -1,50 +1,40 @@
 #include "Dcs.h"
-#include <vector>
+#include <iostream>
 
 struct Zombie {
-    Slab<1024>::Atom* hp;
-    Slab<1024>::Atom* speed;
+    AtomBase* hp;
+    AtomBase* speed;
 };
 
 int main() {
-    Slab<1024> slab;
+    World<1024> world;
 
-    auto* hp = slab.create(int32_t(100));
-    auto* spd = slab.create(3.5f);
-    auto* wealth = slab.create(3);
+    auto* hp = world.create(int32_t(100));
+    auto* spd = world.create(3.5f);
+    auto* wealth = world.create(int(3));
+    auto* pos = world.create(Vec3{3, 2, 1});
 
-    std::vector<Slab<1024>::Atom*> zombie;
-    zombie.push_back(hp);
-    zombie.push_back(spd);
-    zombie.push_back(wealth);
+    std::vector<AtomBase*> zombie = { hp, spd, wealth };
 
-    std::cout << "Normal zombie wealth: " << zombie[2]->get<int32_t>() << std::endl;
+    std::cout << "Normal zombie wealth: " << world.value_of<int>(zombie[2]) << "\n";
 
-    std::vector<Slab<1024>::Atom*> super_zombie = clone_entity(slab, zombie);
-    super_zombie[2]->get<int32_t>() = 5;
-    std::cout << "Super zombie wealth updated: " << super_zombie[2]->get<int32_t>() << std::endl;
+    std::vector<AtomBase*> super_zombie = clone_entity(world, zombie);
+    world.value_of<int>(super_zombie[2]) = 5;
 
-    slab.create(Vec3{ 1, 2, 3 });
-    slab.create(Vec3{ 7, 0, 5 });
-    slab.create(Vec2{ 9, 4 });
+    //world.print(super_zombie[2]); 
+    //world.print(pos);
+    //world.create(Vec3{ 1, 2, 3 });
+    //world.pop<Vec3>(2);
 
-    std::cout << "speed: " << spd->get<float>() << "\n";
+    //world.create(Vec3{ 7, 0, 5 });
+    //world.create(Vec2{ 9, 4 });
+
+    //world.free_entity(zombie);
+
+    std::cout << "Normal zombie wealth: " << world.value_of<int>(zombie[2]) << "\n";
 
     std::cout << "\n=== Vec3 only ===\n";
-    slab.iter<Vec3>([](Vec3& v) {
+    world.iter<Vec3>([](Vec3& v) {
         std::cout << v.x << "," << v.y << "," << v.z << "\n";
         });
-
-    std::cout << "\n=== Vec2 only ===\n";
-    slab.iter<Vec2>([](Vec2& v) {
-        std::cout << v.x << "," << v.y << "\n";
-        });
-
-    auto find = [](auto& vec, uint8_t tag) -> Slab<1024>::Atom* {
-        for (auto* a : vec)
-            if (a->tag == tag) return a;
-        return nullptr;
-        };
-
-    slab.free(hp);
 }
