@@ -1,5 +1,6 @@
 # DCS Engine
-A modular, data-driven C++ engine built on axiomatic composition. Everything is an 'atom' that resides in a defined 'World'. Entities are whatever you make them.
+
+#### A modular, data-driven C++ engine built on axiomatic composition. Everything is an 'atom' that resides in a defined 'World'. Entities are whatever you make them.
 ---
 ## Core Philosophy
 - **Pay for what you use** — systems are decoupled, slabs are per-type, nothing is allocated until you ask for it
