@@ -78,7 +78,7 @@ SteamWand is a Cache-friendly per-type storage with zero archetype overhead and 
 - **Defragmentation** — background compaction when spare compute is available
 - **Overflow** — linked slab extension if capacity is exceeded at runtime
 - **Queries** — iterator-based multi-type querying via metaprogramming
-- **Multi-Stream Buffer** for handling larger amount of repetitive data.
+- **Multi-Stream Buffer** for handling larger amount of repetitive data (The current one in Idea.h is only single)
   
 ---
 
