@@ -62,8 +62,7 @@ world.value_of<int>(atom) = 5;
 world.iter<Vec3>([](Vec3& v) { ... });
 
 // Runtime type discovery
-world.print(atom);
-world.dispatch(atom, [](auto& v) { ... });
+world.print(atom); (In C++, The user still needs to truly determine if it's an int or a float for instance which is the biggest bottleneck currently. In Lua, it should be possible to use mappings to get around the unknown types).
 
 // Memory management
 world.clear();        // arena-style nuke, O(1)
