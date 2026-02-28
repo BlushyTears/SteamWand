@@ -3,7 +3,8 @@
 #### A modular, data-driven C++ engine built on axiomatic composition. Everything is an 'atom' that resides in a defined 'World'. Entities are whatever you make them.
 ---
 ## Core Philosophy
-- **Pay for what you use** — systems are decoupled, slabs are per-type, nothing is allocated until you ask for it
+- **Use one world or many worlds** - Either rapidly prototype with all data mashed into one world, or manage many worlds 
+- **Pay for what you use** — systems are decoupled, slabs are per-type for optimal cache locality, nothing is allocated until you ask for it
 - **Compose freely** — entities are bags of typed atoms, no inheritance, no schema
 - **Recompile only when the type system changes** — everything else is runtime
 ---
