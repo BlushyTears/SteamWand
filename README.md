@@ -11,6 +11,9 @@
 - **Recompile only when the type system changes** — everything else is runtime
 ---
 
+## Why this over ECS?
+Steamwand is a Cache-friendly per-type storage with zero archetype overhead and a scripting bridge that doesn't require recompilation. Additionally you get javascript-like flexibility that is unheard of from conventional approaches.
+
 ## Core Data Model
 All data lives in a `World` — a collection of per-type slabs, one contiguous array per type registered in `AtomTypes`.
 ```cpp
