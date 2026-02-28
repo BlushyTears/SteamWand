@@ -1,6 +1,6 @@
 # DCS Engine
 
-A modular, data-driven C++ engine built on axiomatic composition. Everything is an atom. Entities are whatever you make them.
+A modular, data-driven C++ engine built on axiomatic composition. Everything is an 'atom' that resides in a defined 'World'. Entities are whatever you make them.
 
 ---
 
@@ -67,7 +67,7 @@ world.dispatch(atom, [](auto& v) { ... });
 
 // Memory management
 world.clear();        // arena-style nuke, O(1)
-world.pop<Vec3>(20);  // remove last N of a type
+world.pop<Vec3>(20);  // remove last N of a type, also O(1)
 ```
 
 ---
@@ -78,18 +78,13 @@ world.pop<Vec3>(20);  // remove last N of a type
 |---|---|
 | `clear()` | Frame-local entities, O(1) reset |
 | `free_entity()` | Individual removal via swap-and-pop |
-| Multiple worlds | Persistence tiers — permanent vs transient |
-
-```cpp
-World<1024> persistent; // lives forever
-World<1024> transient;  // cleared every frame
-```
+| Optionally create multiple worlds or just one big world for prototyping | Persistence tiers — permanent vs transient |
 
 ---
 
 ## Scripting (Lua)
 
-`dispatch` is the natural Lua bridge — push any atom to Lua without knowing its type at the C++ call site, pull values back by tag. Game data changes without recompilation. Only new types in `AtomTypes` require a rebuild.
+`dispatch` is the Lua bridge — push any atom to Lua without knowing its type at the C++ call site, pull values back by tag. Game data changes without recompilation. Only new types in `AtomTypes` require a rebuild.
 
 ```cpp
 void push_to_lua(lua_State* L, AtomBase* atom) {
@@ -107,12 +102,13 @@ void push_to_lua(lua_State* L, AtomBase* atom) {
 
 ## Planned
 
+- **Automatic type deduction** — Somehow help with determining the type when we call get on an Atom (One idea is a static analyzer)
 - **Concurrency** — tagged task queues, decoupled per system, thread-safe slab access
-- **Coroutines** — deferred and async operations via C++20 coroutines
+- **Coroutines** — Concurrency related
 - **Defragmentation** — background compaction when spare compute is available
 - **Overflow** — linked slab extension if capacity is exceeded at runtime
 - **Queries** — iterator-based multi-type querying via metaprogramming
-
+- **Multi-Stream Buffer** for handling larger amount of repetitive data. 
 ---
 
 ## Adding a New Type
@@ -128,5 +124,3 @@ inline std::ostream& operator<<(std::ostream& os, const Health& h) {
 }
 using AtomTypes = std::tuple<int32_t, float, Vec2, Vec3, int, Health>;
 ```
-
-That's it. No registration, no boilerplate.
