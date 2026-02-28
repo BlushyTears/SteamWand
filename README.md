@@ -9,7 +9,6 @@
 - **Pay for what you use** — systems are decoupled, slabs are per-type for optimal cache locality, nothing is allocated until you ask for it
 - **Compose freely** — entities are bags of typed atoms, no inheritance, no schema
 - **Recompile only when the type system changes** — everything else is runtime
-- 
 ---
 
 ## Core Data Model
