@@ -86,6 +86,7 @@ struct TypedSlab {
 private:
     std::array<Atom, Capacity> slots{};
     std::bitset<Capacity> occupied{};
+
 };
 
 template<size_t Capacity>
@@ -158,6 +159,7 @@ struct World {
             std::cout << "\n";
     }
 
+    // clanker goes brr brr
     template<typename Fn>
     void dispatch(AtomBase* atom, Fn&& fn) {
         [&] <size_t... I>(std::index_sequence<I...>) {
