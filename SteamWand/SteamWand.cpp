@@ -15,7 +15,7 @@ int main() {
     auto* hp = world.create(int32_t(100));
     auto* spd = world.create(3.5f);
     auto* wealth = world.create(int(3));
-    auto* pos = world.create(Vec3{3, 2, 1});
+    auto* pos = world.create(Vec3{ 3, 2, 1 });
 
     std::vector<AtomBase*> zombie = { hp, spd, wealth };
 
@@ -23,6 +23,9 @@ int main() {
 
     std::vector<AtomBase*> super_zombie = world.clone_entity(zombie);
     world.value_of<int>(super_zombie[2]) = 5;
+
+    //world.free_entity(zombie);
+    std::cout << "Normal zombie wealth: " << world.value_of<int>(zombie[2]) << "\n";
 
     //world.print(super_zombie[2]); 
     //world.print(pos);
@@ -33,8 +36,6 @@ int main() {
     //world.create(Vec2{ 9, 4 });
 
     //world.free_entity(zombie);
-
-    std::cout << "Normal zombie wealth: " << world.value_of<int>(zombie[2]) << "\n";
 
     std::cout << "\n=== Vec3 only ===\n";
     world.iter<Vec3>([](Vec3& v) {
