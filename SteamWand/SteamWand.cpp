@@ -23,7 +23,7 @@ int main() {
 
     std::cout << "Normal zombie wealth: " << world.value_of<int>(zombie[2]) << "\n";
 
-    std::vector<AtomBase*> super_zombie = clone_entity(world, zombie);
+    std::vector<AtomBase*> super_zombie = world.clone_entity(zombie);
     world.value_of<int>(super_zombie[2]) = 5;
 
     //world.print(super_zombie[2]); 

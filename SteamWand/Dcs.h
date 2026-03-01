@@ -40,15 +40,11 @@ struct AtomBase {
 template<typename T, size_t Capacity>
 struct TypedSlab {
     struct Atom {
-        uint8_t tag = tag_of<T>(); 
+        uint8_t tag = tag_of<T>();
         T value{};
 
-        T& get() { 
-            return value;
-         }
-        const T& get() const { 
-            return value;
-        }
+        T& get() { return value; }
+        const T& get() const { return value; }
     };
 
     Atom* create(const T& val) {
@@ -56,7 +52,6 @@ struct TypedSlab {
             if (!occupied[i]) {
                 occupied.set(i);
                 slots[i].value = val;
-                active[active_count++] = i;
                 return &slots[i];
             }
         }
@@ -66,38 +61,31 @@ struct TypedSlab {
     void free(Atom* atom) {
         size_t i = atom - slots.data();
         occupied.reset(i);
-        for (size_t j = 0; j < active_count; ++j) {
-            if (active[j] == i) {
-                active[j] = active[--active_count];
-                return;
-            }
-        }
     }
 
     void clear() {
         occupied.reset();
-        active_count = 0;
     }
 
     void pop(size_t n = 1) {
-        n = std::min(n, active_count);
-        for (size_t i = 0; i < n; ++i) {
-            size_t idx = active[--active_count];
-            occupied.reset(idx);
+        for (size_t i = Capacity; i-- > 0 && n > 0;) {
+            if (occupied[i]) {
+                occupied.reset(i);
+                --n;
+            }
         }
     }
 
     template<typename Fn>
     void iter(Fn&& fn) {
-        for (size_t j = 0; j < active_count; ++j)
-            fn(slots[active[j]].value);
+        for (size_t i = 0; i < Capacity; ++i)
+            if (occupied[i])
+                fn(slots[i].value);
     }
 
 private:
     std::array<Atom, Capacity> slots{};
     std::bitset<Capacity> occupied{};
-    std::array<size_t, Capacity> active{};
-    size_t active_count = 0;
 };
 
 template<size_t Capacity>
@@ -111,6 +99,12 @@ struct World {
     template<typename T>
     auto& slabFor() {
         return std::get<type_index<T, AtomTypes>()>(slabs);
+    }
+
+    // Casts an AtomBase* to the underlying typed value — avoids repeating the full cast everywhere
+    template<typename T>
+    T& atom_cast(AtomBase* atom) {
+        return reinterpret_cast<typename TypedSlab<T, Capacity>::Atom*>(atom)->get();
     }
 
     template<typename T>
@@ -135,7 +129,7 @@ struct World {
 
     template<typename T>
     T& value_of(AtomBase* atom) {
-        return reinterpret_cast<typename TypedSlab<T, Capacity>::Atom*>(atom)->get();
+        return atom_cast<T>(atom);
     }
 
     void free_entity(std::vector<AtomBase*>& entity) {
@@ -145,6 +139,13 @@ struct World {
             free<T>(atom);
                 });
         entity.clear();
+    }
+
+    std::vector<AtomBase*> clone_entity(const std::vector<AtomBase*>& entity) {
+        std::vector<AtomBase*> result;
+        for (auto* atom : entity)
+            dispatch(atom, [&](auto& v) { result.push_back(create(v)); });
+        return result;
     }
 
     // A generic print function for determining types if you're unsure down the line
@@ -161,27 +162,8 @@ struct World {
     void dispatch(AtomBase* atom, Fn&& fn) {
         [&] <size_t... I>(std::index_sequence<I...>) {
             ((atom->tag == tag_of<std::tuple_element_t<I, AtomTypes>>()
-                ? [&] { fn(reinterpret_cast<typename TypedSlab<std::tuple_element_t<I, AtomTypes>, Capacity>::Atom*>(atom)->get()); return true; }()
+                ? [&] { fn(atom_cast<std::tuple_element_t<I, AtomTypes>>(atom)); return true; }()
                 : false) || ...);
         }(std::make_index_sequence<std::tuple_size_v<AtomTypes>>{});
     }
 };
-
-template<size_t Capacity, size_t... I>
-AtomBase* clone_atom(World<Capacity>& world, AtomBase* atom, std::index_sequence<I...>) {
-    AtomBase* result = nullptr;
-    ((atom->tag == tag_of<std::tuple_element_t<I, AtomTypes>>()
-        ? (result = world.create(
-            reinterpret_cast<typename TypedSlab<std::tuple_element_t<I, AtomTypes>, Capacity>::Atom*>(atom)->get()
-        ), true)
-        : false) || ...);
-    return result;
-}
-
-template<size_t Capacity>
-std::vector<AtomBase*> clone_entity(World<Capacity>& world, const std::vector<AtomBase*>& entity) {
-    std::vector<AtomBase*> result;
-    for (auto* atom : entity)
-        result.push_back(clone_atom(world, atom, std::make_index_sequence<std::tuple_size_v<AtomTypes>>{}));
-    return result;
-}
