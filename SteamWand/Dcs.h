@@ -141,9 +141,9 @@ struct World {
     void free_entity(std::vector<AtomBase*>& entity) {
         for (auto* atom : entity)
             dispatch(atom, [&](auto& v) {
-            using T = std::decay_t<decltype(v)>;
-            free<T>(atom);
-                });
+                using T = std::decay_t<decltype(v)>;
+                free<T>(atom);
+            });
         entity.clear();
     }
 
