@@ -82,7 +82,7 @@ SteamWand is a Cache-friendly per-type storage with zero archetype overhead and 
 ---
 
 ## Adding a New Type
-1. Define your struct
+1. Define your datatype (type aliasing, enum, struct, union)
 2. Add it to `AtomTypes`
 3. Define `operator<<` if you want `print` to support it
 ```cpp
