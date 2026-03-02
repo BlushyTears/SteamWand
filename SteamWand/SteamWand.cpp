@@ -20,15 +20,19 @@ int main() {
     std::vector<AtomBase*> super_zombie = world.clone_entity(zombie);
     world.value_of<int>(super_zombie[2]) = 5;
 
-    std::cout << "Normal zombie wealth: " << world.value_of<int>(zombie[2]) << "\n";
+    world.free_entity(zombie);
+
+    std::cout << "Super zombie wealth: " << world.value_of<int>(super_zombie[2]) << "\n";
 
     std::cout << "\n=== Vec3 only ===\n";
     world.iter<Vec3>([](Vec3& v) {
         std::cout << v.x << "," << v.y << "," << v.z << "\n";
         });
 
-    auto* newthing = world.create(int(100));
+    AtomBase* newthing = world.create(int(100));
     int& x = world.get(newthing);
+    world.free<int>(newthing);
+
     std::cout << "original x before increment: " << x << std::endl;
     x += 5;
     std::cout << "original x after increment: " << x << std::endl;
