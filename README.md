@@ -32,7 +32,7 @@ std::vector<AtomBase*> zombie = {
 ```
 A boss zombie can clone a normal zombie, eject unused atoms, and add new ones. All this without caring for the types:
 ```cpp
-auto boss = clone_entity(world, zombie);
+auto boss = world.clone_entity(zombie);
 world.free_entity(zombie);
 ```
 
@@ -46,7 +46,7 @@ world.free<Vec3>(atom);
 world.free_entity(entity);
 // Typed access
 world.value_of<int>(atom) = 5;
-// Iteration — pure linear scan per type
+// Iteration
 world.iter<Vec3>([](Vec3& v) { ... });
 // Runtime type discovery
 world.print(atom); (In C++, The user still needs to truly determine if it's an int or a float for instance which is the biggest bottleneck currently. In Lua, it should be possible to use mappings to get around the unknown types).
