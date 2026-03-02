@@ -18,12 +18,18 @@
     <ClCompile Include="SteamWand.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Benchmarks.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Dcs.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Idea.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Benchmarks.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

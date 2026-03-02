@@ -1,12 +1,12 @@
 #pragma once
-#include <array>
-#include <bitset>
+#include <vector>
 #include <cstdint>
 #include <tuple>
 #include <type_traits>
-#include <vector>
 #include <iostream>
 #include <cassert>
+#include <memory>
+#include <algorithm>
 
 struct Vec2 { float x, y; };
 struct Vec3 { float x, y, z; };
@@ -32,114 +32,72 @@ constexpr uint8_t tag_of() {
     return static_cast<uint8_t>(type_index<T, AtomTypes>() + 1);
 }
 
-constexpr uint8_t EMPTY_TAG = 0;
-
 struct AtomBase {
-    uint8_t tag = EMPTY_TAG;
+    uint8_t tag = 0;
 };
 
-template<typename T, size_t Capacity>
+template<typename T>
 struct TypedSlab {
-    struct Atom {
-        uint8_t tag = tag_of<T>();
+    struct Atom : AtomBase {
         T value{};
-
-        T& get() { 
-            return value;
-        }
-        const T& get() const { 
-            return value;
-        }
+        T& get() { return value; }
     };
 
-    Atom* create(const T& val) {
-        for (size_t i = 0; i < Capacity; ++i) {
-            if (!occupied[i]) {
-                occupied.set(i);
-                slots[i].value = val;
-                return &slots[i];
-            }
+    TypedSlab(size_t capacity) : cap(capacity) {
+        slots = std::make_unique<Atom[]>(capacity);
+        occupied.assign(capacity, 0); // Using vector<uint8_t> as a fast bool array
+        free_indices.reserve(capacity);
+        for (size_t i = capacity; i-- > 0; ) {
+            free_indices.push_back(i);
         }
-        return nullptr;
+    }
+
+    Atom* create(const T& val) {
+        if (free_indices.empty()) return nullptr;
+        size_t idx = free_indices.back();
+        free_indices.pop_back();
+        slots[idx].tag = tag_of<T>();
+        slots[idx].value = val;
+        occupied[idx] = 1;
+        return &slots[idx];
     }
 
     void free(Atom* atom) {
-        size_t i = atom - slots.data();
-        occupied.reset(i);
-    }
-
-    void clear() {
-        occupied.reset();
-    }
-
-    void pop(size_t n = 1) {
-        for (size_t i = Capacity; i-- > 0 && n > 0;) {
-            if (occupied[i]) {
-                occupied.reset(i);
-                --n;
-            }
+        size_t i = atom - slots.get();
+        if (occupied[i]) {
+            occupied[i] = 0;
+            free_indices.push_back(i);
         }
     }
 
     template<typename Fn>
     void iter(Fn&& fn) {
-        for (size_t i = 0; i < Capacity; ++i)
-            if (occupied[i])
-                fn(slots[i].value);
+        for (size_t i = 0; i < cap; ++i)
+            if (occupied[i]) fn(slots[i].value);
+    }
+
+    T& get_value(AtomBase* atom) {
+        return static_cast<Atom*>(atom)->get();
     }
 
 private:
-    std::array<Atom, Capacity> slots{};
-    std::bitset<Capacity> occupied{};
-
+    size_t cap;
+    std::unique_ptr<Atom[]> slots;
+    std::vector<uint8_t> occupied;
+    std::vector<size_t> free_indices;
 };
 
-template<size_t Capacity>
 struct World {
-    using Slabs = decltype([]<size_t... I>(std::index_sequence<I...>) {
-        return std::tuple<TypedSlab<std::tuple_element_t<I, AtomTypes>, Capacity>...>{};
-    }(std::make_index_sequence<std::tuple_size_v<AtomTypes>>{}));
+    // Helper to generate the tuple type automatically from AtomTypes
+    template<typename... Ts>
+    static std::tuple<TypedSlab<Ts>...> make_slabs_type(std::tuple<Ts...>);
+    using SlabsTuple = decltype(make_slabs_type(std::declval<AtomTypes>()));
 
-    struct AtomProxy {
-        World* world;
-        AtomBase* atom;
-
-        template<typename T>
-        operator T& () {
-            assert(atom->tag == tag_of<T>() && "Tag mismatch on get(), make sure type is correct");
-            return world->value_of<T>(atom);
-        }
-
-        template<typename T>
-        operator const T& () const {
-            assert(atom->tag == tag_of<T>() && "Tag mismatch on get(), make sure type is correct");
-            return world->value_of<T>(atom);
-        }
-
-        // Usage: world.get(atom) = 42
-        template<typename T>
-        AtomProxy& operator=(const T& val) {
-            assert(atom->tag == tag_of<T>() && "Tag mismatch on get(), make sure type is correct");
-            world->value_of<T>(atom) = val;
-            return *this;
-        }
-    };
-
-    AtomProxy get(AtomBase* atom) {
-        return { this, atom };
-    }
-
-    Slabs slabs;
+    World(size_t capacity) : slabs(init_slabs(capacity, std::make_index_sequence<std::tuple_size_v<AtomTypes>>{})) {}
 
     template<typename T>
     auto& slabFor() {
-        return std::get<type_index<T, AtomTypes>()>(slabs);
-    }
-
-    // Casts an AtomBase* to the underlying typed value — avoids repeating the full cast everywhere
-    template<typename T>
-    T& atom_cast(AtomBase* atom) {
-        return reinterpret_cast<typename TypedSlab<T, Capacity>::Atom*>(atom)->get();
+        return std::get<TypedSlab<T>>(slabs);
     }
 
     template<typename T>
@@ -149,12 +107,7 @@ struct World {
 
     template<typename T>
     void free(AtomBase* atom) {
-        slabFor<T>().free(reinterpret_cast<typename TypedSlab<T, Capacity>::Atom*>(atom));
-    }
-
-    template<typename T>
-    void pop(size_t n = 1) {
-        slabFor<T>().pop(n);
+        slabFor<T>().free(reinterpret_cast<typename TypedSlab<T>::Atom*>(atom));
     }
 
     template<typename T, typename Fn>
@@ -164,12 +117,17 @@ struct World {
 
     template<typename T>
     T& value_of(AtomBase* atom) {
-        return atom_cast<T>(atom);
+        return slabFor<T>().get_value(atom);
     }
 
-    int& value_of(AtomBase* atom, int*) {
-        return (int&)value_of<int32_t>(atom);
-    }
+    struct AtomProxy {
+        World* world;
+        AtomBase* atom;
+        template<typename T> operator T& () { return world->value_of<T>(atom); }
+        template<typename T> AtomProxy& operator=(const T& val) { world->value_of<T>(atom) = val; return *this; }
+    };
+
+    AtomProxy get(AtomBase* atom) { return { this, atom }; }
 
     void free_entity(std::vector<AtomBase*>& entity) {
         for (auto* atom : entity)
@@ -187,21 +145,20 @@ struct World {
         return result;
     }
 
-    // A generic print function for determining types if you're unsure down the line
-    void print(AtomBase* atom) {
-        dispatch(atom, [](auto& v) {
-            if constexpr (requires { std::cout << v; })
-                std::cout << v;
-            });
-    }
-
-    // clanker goes brr brr
     template<typename Fn>
     void dispatch(AtomBase* atom, Fn&& fn) {
         [&] <size_t... I>(std::index_sequence<I...>) {
             ((atom->tag == tag_of<std::tuple_element_t<I, AtomTypes>>()
-                ? [&] { fn(atom_cast<std::tuple_element_t<I, AtomTypes>>(atom)); return true; }()
+                ? [&] { fn(value_of<std::tuple_element_t<I, AtomTypes>>(atom)); return true; }()
                 : false) || ...);
         }(std::make_index_sequence<std::tuple_size_v<AtomTypes>>{});
     }
+
+private:
+    template<size_t... I>
+    static SlabsTuple init_slabs(size_t cap, std::index_sequence<I...>) {
+        return std::make_tuple(TypedSlab<std::tuple_element_t<I, AtomTypes>>(cap)...);
+    }
+
+    SlabsTuple slabs;
 };
