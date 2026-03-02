@@ -40,7 +40,9 @@ template<typename T>
 struct TypedSlab {
     struct Atom : AtomBase {
         T value{};
-        T& get() { return value; }
+        T& get() { 
+            return value;
+        }
     };
 
     TypedSlab(size_t capacity) : cap(capacity) {
@@ -123,11 +125,18 @@ struct World {
     struct AtomProxy {
         World* world;
         AtomBase* atom;
-        template<typename T> operator T& () { return world->value_of<T>(atom); }
-        template<typename T> AtomProxy& operator=(const T& val) { world->value_of<T>(atom) = val; return *this; }
+        template<typename T> operator T& () { 
+            return world->value_of<T>(atom);
+        }
+        template<typename T> AtomProxy& operator=(const T& val) { 
+            world->value_of<T>(atom) = val;
+            return *this;
+        }
     };
 
-    AtomProxy get(AtomBase* atom) { return { this, atom }; }
+    AtomProxy get(AtomBase* atom) { 
+        return { this, atom };
+    }
 
     void free_entity(std::vector<AtomBase*>& entity) {
         for (auto* atom : entity)
@@ -145,6 +154,7 @@ struct World {
         return result;
     }
 
+    // clanker goes brr brr
     template<typename Fn>
     void dispatch(AtomBase* atom, Fn&& fn) {
         [&] <size_t... I>(std::index_sequence<I...>) {
