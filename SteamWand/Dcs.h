@@ -7,10 +7,12 @@
 #include <vector>
 #include <iostream>
 
+#include <cassert>
+
 struct Vec2 { float x, y; };
 struct Vec3 { float x, y, z; };
 
-using AtomTypes = std::tuple<int32_t, float, Vec2, Vec3, int>;
+using AtomTypes = std::tuple<int32_t, uint32_t, float, Vec2, Vec3>;
 
 inline std::ostream& operator<<(std::ostream& os, const Vec2& v) { return os << "Vec2( " << v.x << "," << v.y << " )"; }
 inline std::ostream& operator<<(std::ostream& os, const Vec3& v) { return os << "Vec3( " << v.x << "," << v.y << "," << v.z << " )"; }
@@ -99,6 +101,35 @@ struct World {
         return std::tuple<TypedSlab<std::tuple_element_t<I, AtomTypes>, Capacity>...>{};
     }(std::make_index_sequence<std::tuple_size_v<AtomTypes>>{}));
 
+    struct AtomProxy {
+        World* world;
+        AtomBase* atom;
+
+        template<typename T>
+        operator T& () {
+            assert(atom->tag == tag_of<T>() && "Tag mismatch on get(), make sure type is correct");
+            return world->value_of<T>(atom);
+        }
+
+        template<typename T>
+        operator const T& () const {
+            assert(atom->tag == tag_of<T>() && "Tag mismatch on get(), make sure type is correct");
+            return world->value_of<T>(atom);
+        }
+
+        // Usage: world.get(atom) = 42
+        template<typename T>
+        AtomProxy& operator=(const T& val) {
+            assert(atom->tag == tag_of<T>() && "Tag mismatch on get(), make sure type is correct");
+            world->value_of<T>(atom) = val;
+            return *this;
+        }
+    };
+
+    AtomProxy get(AtomBase* atom) {
+        return { this, atom };
+    }
+
     Slabs slabs;
 
     template<typename T>
@@ -135,6 +166,10 @@ struct World {
     template<typename T>
     T& value_of(AtomBase* atom) {
         return atom_cast<T>(atom);
+    }
+
+    int& value_of(AtomBase* atom, int*) {
+        return (int&)value_of<int32_t>(atom);
     }
 
     void free_entity(std::vector<AtomBase*>& entity) {
