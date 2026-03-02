@@ -6,7 +6,6 @@
 #include <type_traits>
 #include <vector>
 #include <iostream>
-
 #include <cassert>
 
 struct Vec2 { float x, y; };
@@ -42,41 +41,66 @@ struct AtomBase {
 template<typename T, size_t Capacity>
 struct TypedSlab {
     struct Atom {
-        uint8_t tag = tag_of<T>();
-        T value{};
+        uint8_t tag = EMPTY_TAG;
+        union {
+            T value;
+            size_t next_free;
+        };
 
-        T& get() { 
+        Atom() : tag(EMPTY_TAG), next_free(0) {}
+        ~Atom() {}
+
+        T& get() {
             return value;
         }
-        const T& get() const { 
+        const T& get() const {
             return value;
         }
     };
 
-    Atom* create(const T& val) {
-        for (size_t i = 0; i < Capacity; ++i) {
-            if (!occupied[i]) {
-                occupied.set(i);
-                slots[i].value = val;
-                return &slots[i];
-            }
+    TypedSlab() {
+        for (size_t i = 0; i < Capacity - 1; ++i) {
+            slots[i].next_free = i + 1;
         }
-        return nullptr;
+        slots[Capacity - 1].next_free = size_t(-1);
+    }
+
+    Atom* create(const T& val) {
+        if (next_available == size_t(-1)) return nullptr;
+
+        size_t index = next_available;
+        next_available = slots[index].next_free;
+
+        occupied.set(index);
+        slots[index].tag = tag_of<T>();
+        slots[index].value = val;
+        return &slots[index];
     }
 
     void free(Atom* atom) {
         size_t i = atom - slots.data();
+        if (!occupied[i]) return;
+
         occupied.reset(i);
+        slots[i].tag = EMPTY_TAG;
+        slots[i].next_free = next_available;
+        next_available = i;
     }
 
     void clear() {
         occupied.reset();
+        next_available = 0;
+        for (size_t i = 0; i < Capacity - 1; ++i) {
+            slots[i].tag = EMPTY_TAG;
+            slots[i].next_free = i + 1;
+        }
+        slots[Capacity - 1].next_free = size_t(-1);
     }
 
     void pop(size_t n = 1) {
         for (size_t i = Capacity; i-- > 0 && n > 0;) {
             if (occupied[i]) {
-                occupied.reset(i);
+                free(&slots[i]);
                 --n;
             }
         }
@@ -92,7 +116,7 @@ struct TypedSlab {
 private:
     std::array<Atom, Capacity> slots{};
     std::bitset<Capacity> occupied{};
-
+    size_t next_available = 0;
 };
 
 template<size_t Capacity>
@@ -107,20 +131,19 @@ struct World {
 
         template<typename T>
         operator T& () {
-            assert(atom->tag == tag_of<T>() && "Tag mismatch on get(), make sure type is correct");
+            assert(atom->tag == tag_of<T>() && "Tag mismatch on get()");
             return world->value_of<T>(atom);
         }
 
         template<typename T>
         operator const T& () const {
-            assert(atom->tag == tag_of<T>() && "Tag mismatch on get(), make sure type is correct");
+            assert(atom->tag == tag_of<T>() && "Tag mismatch on get()");
             return world->value_of<T>(atom);
         }
 
-        // Usage: world.get(atom) = 42
         template<typename T>
         AtomProxy& operator=(const T& val) {
-            assert(atom->tag == tag_of<T>() && "Tag mismatch on get(), make sure type is correct");
+            assert(atom->tag == tag_of<T>() && "Tag mismatch on set()");
             world->value_of<T>(atom) = val;
             return *this;
         }
@@ -137,7 +160,6 @@ struct World {
         return std::get<type_index<T, AtomTypes>()>(slabs);
     }
 
-    // Casts an AtomBase* to the underlying typed value — avoids repeating the full cast everywhere
     template<typename T>
     T& atom_cast(AtomBase* atom) {
         return reinterpret_cast<typename TypedSlab<T, Capacity>::Atom*>(atom)->get();
@@ -168,10 +190,6 @@ struct World {
         return atom_cast<T>(atom);
     }
 
-    int& value_of(AtomBase* atom, int*) {
-        return (int&)value_of<int32_t>(atom);
-    }
-
     void free_entity(std::vector<AtomBase*>& entity) {
         for (auto* atom : entity)
             dispatch(atom, [&](auto& v) {
@@ -188,7 +206,6 @@ struct World {
         return result;
     }
 
-    // A generic print function for determining types if you're unsure down the line
     void print(AtomBase* atom) {
         dispatch(atom, [](auto& v) {
             if constexpr (requires { std::cout << v; })
@@ -196,7 +213,6 @@ struct World {
             });
     }
 
-    // clanker goes brr brr
     template<typename Fn>
     void dispatch(AtomBase* atom, Fn&& fn) {
         [&] <size_t... I>(std::index_sequence<I...>) {
