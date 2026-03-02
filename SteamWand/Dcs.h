@@ -43,8 +43,12 @@ struct TypedSlab {
         uint8_t tag = tag_of<T>();
         T value{};
 
-        T& get() { return value; }
-        const T& get() const { return value; }
+        T& get() { 
+            return value;
+        }
+        const T& get() const { 
+            return value;
+        }
     };
 
     Atom* create(const T& val) {
@@ -102,7 +106,7 @@ struct World {
         return std::get<type_index<T, AtomTypes>()>(slabs);
     }
 
-    // Casts an AtomBase* to the underlying typed value — avoids repeating the full cast everywhere
+    // Casts an AtomBase* to the underlying typed value â€” avoids repeating the full cast everywhere
     template<typename T>
     T& atom_cast(AtomBase* atom) {
         return reinterpret_cast<typename TypedSlab<T, Capacity>::Atom*>(atom)->get();
@@ -150,13 +154,11 @@ struct World {
     }
 
     // A generic print function for determining types if you're unsure down the line
-    void print(AtomBase* atom, bool newline = true) {
+    void print(AtomBase* atom) {
         dispatch(atom, [](auto& v) {
             if constexpr (requires { std::cout << v; })
                 std::cout << v;
             });
-        if (newline)
-            std::cout << "\n";
     }
 
     // clanker goes brr brr
