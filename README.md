@@ -83,7 +83,7 @@ Atoms live inside fixed slab arrays inside `World`. nothing is heap-allocated pe
 
 ---
 ## Why this over ECS?
-Cache-friendly per-type storage with zero archetype overhead and a scripting bridge that doesn't require recompilation. Entities are runtime-composed bags of atoms — no archetype migrations, no component registries.
+Cache-friendly per-type storage with zero archetype overhead and a scripting bridge that doesn't require recompilation. Entities are runtime-composed bags of atoms. no archetype migrations, no component registries: Javascript-like freedom.
 
 ---
 ## Planned
