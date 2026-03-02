@@ -6,6 +6,7 @@
 - **Pay for what you use:** Systems are decoupled, slabs are per-type for optimal cache locality, nothing is allocated until you ask for it
 - **Compose freely:** Entities (or whatever you want to call them) are collections of typed atoms, no inheritance model needed
 - **Recompile only when the type system changes:** Everything else is runtime
+- **The structure is enforced by the end-user:** You can store atoms like vectors, hashmaps, objects, custom data structures, nothing at all or however you like for keeping things organized in your game.
 ---
 ## Core Data Model
 All data lives in a `World`: a collection of per-type slabs, one contiguous array per type registered in `AtomTypes`.
@@ -20,9 +21,9 @@ Entities are `vector<AtomBase*>`. Bags of typed atoms composed freely at runtime
 ```cpp
 World<1024> world;
 std::vector<AtomBase*> zombie = {
-    world.create(int32_t(100)),  // hp
-    world.create(3.5f),          // speed
-    world.create(uint32_t(3))    // wealth
+    world.create(int32_t(100)),
+    world.create(3.5f),
+    world.create(uint32_t(3))
 };
 ```
 A boss zombie can clone a normal zombie, eject unused atoms, and add new ones without caring about the underlying types:
@@ -53,7 +54,7 @@ world.iter<Vec3>([](Vec3& v) { ... });
 world.print(atom);
 
 // Batch operations
-world.pop<Vec3>(20);   // remove last N of a type
+world.pop<Vec3>(20);
 ```
 ---
 ## get() vs value_of()
