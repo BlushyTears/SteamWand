@@ -88,8 +88,7 @@ Cache-friendly per-type storage with zero archetype overhead and a scripting bri
 ---
 ## Planned
 - **Concurrency:** Tagged task queues, decoupled per system, thread-safe slab access via coroutines
-- **Defragmentation:** Background compaction when spare compute is available
-- **Overflow:** Linked slab extension if capacity is exceeded at runtime
+- **Overflow:** Linked slab extension if capacity is exceeded at runtime (Linked list style probs)
 - **Queries:** Iterator-based multi-type querying via metaprogramming
 - **Multi-Stream Buffer:** For handling larger amounts of repetitive data
 
