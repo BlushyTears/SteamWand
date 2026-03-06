@@ -4,76 +4,79 @@
 ## Core Philosophy
 - **Use one world or many worlds:** Either rapidly prototype with all data in one world, or manage many worlds
 - **Pay for what you use:** Systems are decoupled, slabs are per-type for optimal cache locality, nothing is allocated until you ask for it
-- **Compose freely:** Entities are uint32_t IDs with typed atoms attached, no inheritance model needed
+- **Compose freely:** Entities are collections of typed atoms, no inheritance model needed
 - **Recompile only when the type system changes:** Everything else is runtime
-- **The structure is enforced by the end-user:** You can store entity IDs like vectors, hashmaps, objects, custom data structures, nothing at all or however you like for keeping things organized in your game.
+- **The structure is enforced by the end-user:** You can store atoms like vectors, hashmaps, objects, custom data structures, nothing at all or however you like for keeping things organized in your game.
 ---
 ## Core Data Model
 All data lives in a `World`: a collection of per-type slabs, one contiguous array per type registered in `AtomTypes`.
 ```cpp
 using AtomTypes = std::tuple<int32_t, uint32_t, float, Vec2, Vec3>;
 ```
-Adding a new type costs one word. Each slab is fixed-size and cache-friendly. `iter<T>` is a pure linear scan with no branching. Each atom carries a `uint8_t` tag for O(1) type dispatch. A `ReverseIndex` per type allows O(1) back-querying from entity ID to component with no impact on iteration performance.
+Adding a new type costs one word. Each slab is fixed-size and cache-friendly. `iter<T>` is a pure linear scan with no branching. Each atom carries a `uint8_t` tag for O(1) type dispatch.
 
 ---
 ## Entities & Composition
-Entities are `uint32_t` IDs. Components are typed atoms attached to them at runtime.
+Entities are `vector<AtomBase*>`. Bags of typed atoms composed freely at runtime.
 ```cpp
 World world(1024);
-
-uint32_t zombie = world.create_entity();
-world.add_component<int32_t>(zombie, 100);
-world.add_component<float>(zombie, 3.5f);
-world.add_component<uint32_t>(zombie, 3);
+std::vector<AtomBase*> zombie = {
+    world.create(int32_t(100)),
+    world.create(3.5f),
+    world.create(uint32_t(3))
+};
+```
+A boss zombie can clone a normal zombie, eject unused atoms, and add new ones without caring about the underlying types:
+```cpp
+auto boss = world.clone_entity(zombie);
+world.free_entity(zombie);
+boss.push_back(world.create(int32_t(100)));
 ```
 ---
 ## API
 ```cpp
-// Entity lifecycle
-uint32_t e = world.create_entity();
-world.destroy_entity(e);
+// Creation & destruction
+world.create(Vec3{ 1, 2, 3 });
+world.free<Vec3>(atom);
+world.free_entity(entity);
+world.clone_entity(entity);
 
-// Component add & remove
-world.add_component<Vec3>(e, { 1, 2, 3 });
-world.remove_component<Vec3>(e);
-
-// Direct access
-T* val = world.get_component<Vec3>(e);
-bool exists = world.has_component<Vec3>(e);
+// Typed access
+world.value_of<int32_t>(atom) = 5;
 
 // Handle (reference proxy)
-auto h = world.get_handle<Vec3>(e);
+auto h = world.get_handle<Vec3>(atom);
 *h = { 1, 2, 3 };
 
-// Iteration (value only, fastest)
+// Iteration
 world.iter<Vec3>([](Vec3& v) { ... });
 
-// Iteration with entity ID for back-querying
-world.iter_with_entity<Vec3>([&](uint32_t entity_id, Vec3& pos) {
-    float* spd = world.get_component<float>(entity_id);
-});
+// Runtime type dispatch
+world.dispatch(atom, [](auto& v) { ... });
 ```
 ---
 ## Back-querying
-The `ReverseIndex` sits alongside each slab as a cold side-table. During `iter_with_entity` you get the entity ID for free with each component, and can then fetch sibling components in O(1). The slab iteration itself is unaffected.
-
+`ReverseIndex<T>` is a standalone opt-in structure. The world knows nothing about it. If you need to go from an entity ID to a specific component, create one yourself:
 ```cpp
-world.iter_with_entity<Vec3>([&](uint32_t entity_id, Vec3& pos) {
-    float* spd = world.get_component<float>(entity_id);
-    if (spd)
-        pos.x += *spd;
+ReverseIndex<Vec3> positions(1024);
+positions.insert(entity_id, atom);
+
+AtomBase* found = positions.get_atom(entity_id);
+```
+Iteration with entity context:
+```cpp
+positions.iter([&](uint32_t entity_id, AtomBase* atom) {
+    Vec3& pos = world.value_of<Vec3>(atom);
 });
 ```
-Use whichever component type has fewer entities as the iteration entry point to keep the loop short.
-
 ---
 ## Memory Model
-Slabs are heap-allocated once at `World` construction. Nothing is allocated per atom. `remove_component<T>` returns the slot to a freelist for reuse. Everything is cleaned up when `World` goes out of scope.
+Atoms live inside fixed slab arrays inside `World`. Nothing is heap-allocated per atom. No `delete` is ever needed. `world.free<T>(atom)` returns the slot to a freelist for reuse. If reuse isn't needed, it can be skipped entirely. Everything is cleaned up when `World` goes out of scope.
 
 | Strategy | Use case |
 |---|---|
-| `remove_component<T>(e)` | Return a single slot to the freelist, O(1) |
-| `destroy_entity(e)` | Remove all components attached to an entity |
+| `free<T>(atom)` | Return a single slot to the freelist, O(1) |
+| `free_entity(entity)` | Free all atoms in an entity |
 
 ---
 ## Scripting (Lua)
