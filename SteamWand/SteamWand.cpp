@@ -5,6 +5,7 @@ int main() {
     const size_t COUNT = 1000000;
     World world(COUNT);
 
+
     auto* atom = world.create(int(5));
     world.free<int>(atom);
 
@@ -40,7 +41,26 @@ int main() {
     if (found)
         std::cout << "Found position: " << world.value_of<Vec3>(found) << "\n";
 
+    // - Cache friendly way to manage a list of vec3's -
+    World vecWorld(COUNT);
+
+    for (int i = 0; i < 1000000; i++) {
+        auto pos = vecWorld.create(Vec3{ float(1 * i), float(2 * i), float(3 * i) });
+    }
+
+    vecWorld.iter<Vec3>([](Vec3& v) {
+        v.x += 1.0f;
+        v.y += 2.0f;
+        v.z += 3.0f;
+    });
+
+    // Loop unrolling can be a good idea since cout is slow and hurts cache performance
+    vecWorld.iter<Vec3>([](Vec3& v) {
+        std::cout << v << "\n";
+    });
+
     world.free_entity(super_zombie);
+    vecWorld.clear<Vec3>();
 
     return 0;
 }

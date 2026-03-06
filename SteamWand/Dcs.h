@@ -77,6 +77,15 @@ struct TypedSlab {
                 fn(slots[i].value);
     }
 
+    void clear() {
+        for (size_t i = 0; i < cap; ++i) {
+            if (slots[i].tag != EMPTY_TAG) {
+                slots[i].tag = EMPTY_TAG;
+                free_indices.push_back(i);
+            }
+        }
+    }
+
     T& get_value(AtomBase* atom) {
         return static_cast<Atom*>(atom)->value;
     }
@@ -185,6 +194,17 @@ struct World {
     template<typename T>
     T& value_of(AtomBase* atom) {
         return slabFor<T>().get_value(atom);
+    }
+
+    template<typename T>
+    void clear() {
+        slabFor<T>().clear();
+    }
+
+    void print(AtomBase* atom) {
+        dispatch(atom, [](auto& v) {
+            std::cout << v << "\n";
+            });
     }
 
     template<typename T>
