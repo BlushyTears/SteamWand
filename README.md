@@ -4,80 +4,76 @@
 ## Core Philosophy
 - **Use one world or many worlds:** Either rapidly prototype with all data in one world, or manage many worlds
 - **Pay for what you use:** Systems are decoupled, slabs are per-type for optimal cache locality, nothing is allocated until you ask for it
-- **Compose freely:** Entities (or whatever you want to call them) are collections of typed atoms, no inheritance model needed
+- **Compose freely:** Entities are uint32_t IDs with typed atoms attached, no inheritance model needed
 - **Recompile only when the type system changes:** Everything else is runtime
-- **The structure is enforced by the end-user:** You can store atoms like vectors, hashmaps, objects, custom data structures, nothing at all or however you like for keeping things organized in your game.
+- **The structure is enforced by the end-user:** You can store entity IDs like vectors, hashmaps, objects, custom data structures, nothing at all or however you like for keeping things organized in your game.
 ---
 ## Core Data Model
 All data lives in a `World`: a collection of per-type slabs, one contiguous array per type registered in `AtomTypes`.
 ```cpp
 using AtomTypes = std::tuple<int32_t, uint32_t, float, Vec2, Vec3>;
 ```
-Adding a new type costs one word. Each slab is fixed-size, stack-allocated, and cache-friendly. `iter<T>` is a pure linear scan with no branching. Each atom carries a `uint8_t` tag for O(1) type dispatch.
+Adding a new type costs one word. Each slab is fixed-size and cache-friendly. `iter<T>` is a pure linear scan with no branching. Each atom carries a `uint8_t` tag for O(1) type dispatch. A `ReverseIndex` per type allows O(1) back-querying from entity ID to component with no impact on iteration performance.
 
 ---
 ## Entities & Composition
-Entities are `vector<AtomBase*>`. Bags of typed atoms composed freely at runtime.
+Entities are `uint32_t` IDs. Components are typed atoms attached to them at runtime.
 ```cpp
-World<1024> world;
-std::vector<AtomBase*> zombie = {
-    world.create(int32_t(100)),
-    world.create(3.5f),
-    world.create(uint32_t(3))
-};
-```
-A boss zombie can clone a normal zombie, eject unused atoms, and add new ones without caring about the underlying types:
-```cpp
-auto boss = world.clone_entity(zombie);
-world.free_entity(zombie);
-boss.push_back(world.create(int32_t(100)); // add a boss specific variable without reliance on zombie
+World world(1024);
+
+uint32_t zombie = world.create_entity();
+world.add_component<int32_t>(zombie, 100);
+world.add_component<float>(zombie, 3.5f);
+world.add_component<uint32_t>(zombie, 3);
 ```
 ---
 ## API
 ```cpp
-// Creation & destruction
-world.create(Vec3{ 1, 2, 3 });
-world.free<Vec3>(atom);
-world.free_entity(entity);
+// Entity lifecycle
+uint32_t e = world.create_entity();
+world.destroy_entity(e);
 
-// Typed access explicit
-world.value_of<int32_t>(atom) = 5;
+// Component add & remove
+world.add_component<Vec3>(e, { 1, 2, 3 });
+world.remove_component<Vec3>(e);
 
-// Typed access deduced from context via proxy
-int32_t x = world.get(atom);
-world.get(atom) = 5;
-int32_t& x = world.get(atom);
+// Direct access
+T* val = world.get_component<Vec3>(e);
+bool exists = world.has_component<Vec3>(e);
 
-// Iteration
+// Handle (reference proxy)
+auto h = world.get_handle<Vec3>(e);
+*h = { 1, 2, 3 };
+
+// Iteration (value only, fastest)
 world.iter<Vec3>([](Vec3& v) { ... });
 
-// Runtime print & type discovery
-world.print(atom);
-
-// Batch operations
-world.pop<Vec3>(20);
+// Iteration with entity ID for back-querying
+world.iter_with_entity<Vec3>([&](uint32_t entity_id, Vec3& pos) {
+    float* spd = world.get_component<float>(entity_id);
+});
 ```
 ---
-## get() vs value_of()
-`get()` returns a proxy that deduces the type from context. No template argument needed when the type is unambiguous:
+## Back-querying
+The `ReverseIndex` sits alongside each slab as a cold side-table. During `iter_with_entity` you get the entity ID for free with each component, and can then fetch sibling components in O(1). The slab iteration itself is unaffected.
+
 ```cpp
-int32_t x = world.get(atom);   // deduced
-world.get(atom) = 5;           // deduced
+world.iter_with_entity<Vec3>([&](uint32_t entity_id, Vec3& pos) {
+    float* spd = world.get_component<float>(entity_id);
+    if (spd)
+        pos.x += *spd;
+});
 ```
-When context is ambiguous (e.g. `auto`, `std::cout`), use `value_of` with an explicit type:
-```cpp
-auto& x = world.value_of<int32_t>(atom);
-std::cout << world.value_of<int32_t>(atom);
-```
+Use whichever component type has fewer entities as the iteration entry point to keep the loop short.
+
 ---
 ## Memory Model
-Atoms live inside fixed slab arrays inside `World`. nothing is heap-allocated per atom. No `delete` is ever needed. `world.free<T>(atom)` returns the slot to a freelist for reuse. If reuse isn't needed, it can be skipped entirely. Everything is cleaned up when `World` goes out of scope.
+Slabs are heap-allocated once at `World` construction. Nothing is allocated per atom. `remove_component<T>` returns the slot to a freelist for reuse. Everything is cleaned up when `World` goes out of scope.
 
 | Strategy | Use case |
 |---|---|
-| `free<T>(atom)` | Return a single slot to the freelist, O(1) |
-| `free_entity(entity)` | Free all atoms in an entity |
-| `pop<T>(n)` | Remove last N of a type |
+| `remove_component<T>(e)` | Return a single slot to the freelist, O(1) |
+| `destroy_entity(e)` | Remove all components attached to an entity |
 
 ---
 ## Scripting (Lua)
@@ -85,7 +81,7 @@ Atoms live inside fixed slab arrays inside `World`. nothing is heap-allocated pe
 
 ---
 ## Why this over ECS?
-Cache-friendly per-type storage with zero archetype overhead and a scripting bridge that doesn't require recompilation. Entities are runtime-composed bags of atoms. no archetype migrations, no component registries: Javascript-like freedom.
+Cache-friendly per-type storage with zero archetype overhead and a scripting bridge that doesn't require recompilation. Entities are runtime-composed bags of atoms. No archetype migrations, no component registries: Javascript-like freedom.
 
 ---
 ## Planned
