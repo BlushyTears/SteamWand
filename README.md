@@ -69,6 +69,17 @@ positions.iter([&](uint32_t entity_id, AtomBase* atom) {
     Vec3& pos = world.value_of<Vec3>(atom);
 });
 ```
+If you need to go the other way: given an atom, in order to get back its whole entity, you maintain that mapping yourself:
+```cpp
+std::unordered_map<AtomBase*, std::vector<AtomBase*>*> atom_to_entity;
+
+std::vector<AtomBase*> zombie = { hp_p, spd_p, target_p };
+for (auto* atom : zombie)
+    atom_to_entity[atom] = &zombie;
+
+// given any atom, get all its siblings
+auto* entity = atom_to_entity[some_atom];
+```
 ---
 ## Memory Model
 Atoms live inside fixed slab arrays inside `World`. Nothing is heap-allocated per atom. No `delete` is ever needed. `world.free<T>(atom)` returns the slot to a freelist for reuse. If reuse isn't needed, it can be skipped entirely. Everything is cleaned up when `World` goes out of scope.
