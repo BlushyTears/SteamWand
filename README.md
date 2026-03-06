@@ -88,7 +88,7 @@ Atoms live inside fixed slab arrays inside `World`. Nothing is heap-allocated pe
 |---|---|
 | `free<T>(atom)` | Return a single slot to the freelist, O(1) |
 | `free_entity(entity)` | Free all atoms in an entity |
-
+| `vecWorld.clear<Vec3>();` | Arena-like specifically clearing all Vec3 components in a world |
 ---
 ## Scripting (Lua)
 `dispatch` is the planned Lua bridge. Push any atom to Lua without knowing its type at the C++ call site, pull values back by tag. Game data changes without recompilation. Only new types in `AtomTypes` require a rebuild.
