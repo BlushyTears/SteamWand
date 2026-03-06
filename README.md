@@ -29,8 +29,8 @@ std::vector<AtomBase*> zombie = {
 A boss zombie can clone a normal zombie, eject unused atoms, and add new ones without caring about the underlying types:
 ```cpp
 auto boss = world.clone_entity(zombie);
-world.free_entity(zombie);
 boss.push_back(world.create(int32_t(100)));
+world.free_entity(zombie); // boss zombie still resides
 ```
 ---
 ## API
