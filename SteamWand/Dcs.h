@@ -8,7 +8,6 @@
 #include <memory>
 #include <algorithm>
 
-// Example structs that can easily be implemented
 struct Vec2 { float x, y; };
 struct Vec3 { float x, y, z; };
 
@@ -74,7 +73,7 @@ struct TypedSlab {
     template<typename Fn>
     void iter(Fn&& fn) {
         for (size_t i = 0; i < cap; ++i)
-            if (slots[i].tag != EMPTY_TAG) 
+            if (slots[i].tag != EMPTY_TAG)
                 fn(slots[i].value);
     }
 
@@ -105,6 +104,7 @@ struct ReverseIndex {
 
     void remove(uint32_t entity_id) {
         assert(entity_id < sparse.size());
+
         uint32_t idx = sparse[entity_id];
         uint32_t last = static_cast<uint32_t>(dense_entity.size()) - 1;
 
@@ -121,7 +121,7 @@ struct ReverseIndex {
 
     AtomBase* get_atom(uint32_t entity_id) const {
         uint32_t idx = sparse[entity_id];
-        if (idx == INVALID_ID) 
+        if (idx == INVALID_ID)
             return nullptr;
         return dense_atom[idx];
     }
@@ -147,40 +147,34 @@ struct World {
     static std::tuple<TypedSlab<Ts>...> make_slabs_type(std::tuple<Ts...>);
     using SlabsTuple = decltype(make_slabs_type(std::declval<AtomTypes>()));
 
-    template<typename... Ts>
-    static std::tuple<ReverseIndex<Ts>...> make_indices_type(std::tuple<Ts...>);
-    using IndicesTuple = decltype(make_indices_type(std::declval<AtomTypes>()));
-
     World(size_t capacity) {
-        max_entities = capacity;
         slabs = std::make_unique<SlabsTuple>(init_slabs(capacity, std::make_index_sequence<std::tuple_size_v<AtomTypes>>{}));
-        indices = std::make_unique<IndicesTuple>(init_indices(capacity, std::make_index_sequence<std::tuple_size_v<AtomTypes>>{}));
-    }
-
-    uint32_t create_entity() {
-        assert(next_entity_id < max_entities && "Entity capacity exceeded");
-        return next_entity_id++;
-    }
-
-    void destroy_entity(uint32_t entity_id) {
-        destroy_components<0>(entity_id);
     }
 
     template<typename T>
-    AtomBase* add_component(uint32_t entity_id, const T& val) {
-        AtomBase* atom = slabFor<T>().create(val);
-        indexFor<T>().insert(entity_id, atom);
-        return atom;
+    AtomBase* create(const T& val) {
+        return reinterpret_cast<AtomBase*>(slabFor<T>().create(val));
     }
 
     template<typename T>
-    void remove_component(uint32_t entity_id) {
-        auto& idx = indexFor<T>();
-        auto* atom = idx.get_atom(entity_id);
-        assert(atom && "entity does not have this component");
-
-        idx.remove(entity_id);
+    void free(AtomBase* atom) {
         slabFor<T>().free(reinterpret_cast<typename TypedSlab<T>::Atom*>(atom));
+    }
+
+    void free_entity(std::vector<AtomBase*>& entity) {
+        for (auto* atom : entity)
+            dispatch(atom, [&](auto& v) {
+            using T = std::decay_t<decltype(v)>;
+            free<T>(atom);
+                });
+        entity.clear();
+    }
+
+    std::vector<AtomBase*> clone_entity(const std::vector<AtomBase*>& entity) {
+        std::vector<AtomBase*> result;
+        for (auto* atom : entity)
+            dispatch(atom, [&](auto& v) { result.push_back(create(v)); });
+        return result;
     }
 
     template<typename T, typename Fn>
@@ -188,24 +182,9 @@ struct World {
         slabFor<T>().iter(std::forward<Fn>(fn));
     }
 
-    template<typename T, typename Fn>
-    void iter_with_entity(Fn&& fn) {
-        indexFor<T>().iter([&](uint32_t entity_id, AtomBase* atom) {
-            fn(entity_id, slabFor<T>().get_value(atom));
-        });
-    }
-
     template<typename T>
-    bool has_component(uint32_t entity_id) {
-        return indexFor<T>().has(entity_id);
-    }
-
-    template<typename T>
-    T* get_component(uint32_t entity_id) {
-        AtomBase* atom = indexFor<T>().get_atom(entity_id);
-        if (!atom)
-            return nullptr;
-        return &slabFor<T>().get_value(atom);
+    T& value_of(AtomBase* atom) {
+        return slabFor<T>().get_value(atom);
     }
 
     template<typename T>
@@ -228,10 +207,8 @@ struct World {
     };
 
     template<typename T>
-    Handle<T> get_handle(uint32_t entity_id) {
-        AtomBase* atom = indexFor<T>().get_atom(entity_id);
-        assert(atom && "entity does not have this component");
-        return {atom, this};
+    Handle<T> get_handle(AtomBase* atom) {
+        return { atom, this };
     }
 
     template<typename Fn>
@@ -249,47 +226,10 @@ private:
         return std::get<TypedSlab<T>>(*slabs);
     }
 
-    template<typename T>
-    auto& indexFor() {
-        return std::get<ReverseIndex<T>>(*indices);
-    }
-
-    template<typename T>
-    T& value_of(AtomBase* atom) {
-        return slabFor<T>().get_value(atom);
-    }
-
-    template<typename T>
-    void remove_atom(uint32_t entity_id) {
-        auto& idx = indexFor<T>();
-        auto* atom = idx.get_atom(entity_id);
-        idx.remove(entity_id);
-        slabFor<T>().free(reinterpret_cast<typename TypedSlab<T>::Atom*>(atom));
-    }
-
-    template<size_t I = 0>
-    void destroy_components(uint32_t entity_id) {
-        if constexpr (I < std::tuple_size_v<AtomTypes>) {
-            using T = std::tuple_element_t<I, AtomTypes>;
-            if (indexFor<T>().has(entity_id))
-                remove_atom<T>(entity_id);
-            destroy_components<I + 1>(entity_id);
-        }
-    }
-
     template<size_t... I>
     static SlabsTuple init_slabs(size_t cap, std::index_sequence<I...>) {
         return std::make_tuple(TypedSlab<std::tuple_element_t<I, AtomTypes>>(cap)...);
     }
 
-    template<size_t... I>
-    static IndicesTuple init_indices(size_t cap, std::index_sequence<I...>) {
-        return std::make_tuple(ReverseIndex<std::tuple_element_t<I, AtomTypes>>(cap)...);
-    }
-
-    uint32_t next_entity_id = 0;
-    size_t max_entities = 0;
-
     std::unique_ptr<SlabsTuple> slabs;
-    std::unique_ptr<IndicesTuple> indices;
 };
