@@ -30,6 +30,7 @@ A boss zombie can clone a normal zombie, eject unused atoms, and add new ones wi
 ```cpp
 auto boss = world.clone_entity(zombie);
 world.free_entity(zombie);
+boss.push_back(world.create(int32_t(100)); // add a boss specific variable without reliance on zombie
 ```
 ---
 ## API
