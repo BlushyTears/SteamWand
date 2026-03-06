@@ -44,8 +44,9 @@ int main() {
     // - Cache friendly way to manage a list of vec3's -
     World vecWorld(COUNT);
 
-    for (int i = 0; i < 1000000; i++) {
+    for (int i = 0; i < 4; i++) {
         auto pos = vecWorld.create(Vec3{ float(1 * i), float(2 * i), float(3 * i) });
+        auto pos2 = vecWorld.create(int(5));
     }
 
     vecWorld.iter<Vec3>([](Vec3& v) {
@@ -54,13 +55,19 @@ int main() {
         v.z += 3.0f;
     });
 
+    world.free_entity(super_zombie);
+    // Clear integers here to demostrate the potential
+    vecWorld.clear<int>();
+
     // Loop unrolling can be a good idea since cout is slow and hurts cache performance
     vecWorld.iter<Vec3>([](Vec3& v) {
         std::cout << v << "\n";
-    });
+        });
 
-    world.free_entity(super_zombie);
-    vecWorld.clear<Vec3>();
+    // This will print nothing since it got cleared
+    vecWorld.iter<int>([](int& v) {
+        std::cout << v << "\n";
+        });
 
     return 0;
 }

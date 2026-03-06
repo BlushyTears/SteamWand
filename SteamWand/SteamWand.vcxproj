@@ -130,7 +130,6 @@
   <ItemGroup>
     <ClInclude Include="Benchmarks.h" />
     <ClInclude Include="Dcs.h" />
-    <ClInclude Include="Idea.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
