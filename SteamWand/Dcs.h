@@ -94,13 +94,6 @@ struct TypedSlab {
                 fn(values[i]);
     }
 
-    template<typename Fn>
-    void iter_with_index(Fn&& fn) const noexcept {
-        for (uint32_t i = 0; i < cap; ++i)
-            if (tags[i] != EMPTY_TAG)
-                fn(values[i], i);
-    }
-
     void clear() noexcept {
         for (uint32_t i = 0; i < cap; ++i) {
             if (tags[i] != EMPTY_TAG) {
@@ -233,31 +226,9 @@ struct World {
             slabFor<T>().free(atom);
     }
 
-    void free_entity(uint16_t entity_id, std::vector<AtomBase*>& components) {
-        for (auto* atom : components) {
-            if (atom && atom->entity_id == entity_id) {
-                dispatch(atom, [&](auto& v) {
-                    using T = std::decay_t<decltype(v)>;
-                    free<T>(atom);
-                    });
-            }
-        }
-    }
-
-    std::vector<AtomBase*> get_entity_components(uint16_t entity_id) {
-        std::vector<AtomBase*> result;
-        // This would need component lists per entity
-        return result;
-    }
-
     template<typename T, typename Fn>
     void iter(Fn&& fn) const noexcept {
         slabFor<T>().iter(std::forward<Fn>(fn));
-    }
-
-    template<typename T, typename Fn>
-    void iter_with_index(Fn&& fn) const noexcept {
-        slabFor<T>().iter_with_index(std::forward<Fn>(fn));
     }
 
     template<typename T>
@@ -363,31 +334,6 @@ struct World {
     template<typename T>
     auto& slabFor() const noexcept {
         return std::get<TypedSlab<T>>(*slabs);
-    }
-
-    template<typename T>
-    size_t allocated_count() const noexcept {
-        return std::get<TypedSlab<T>>(*slabs).allocated_count();
-    }
-
-    template<typename... Ts>
-    struct ComponentGroup {
-        uint32_t indices[sizeof...(Ts)];
-    };
-
-    template<typename... Ts>
-    ComponentGroup<Ts...> create_entity(const Ts&... values) {
-        ComponentGroup<Ts...> group;
-        size_t i = 0;
-        ((group.indices[i++] = index_of<Ts>(create(values))), ...);
-        return group;
-    }
-
-    template<typename... Ts, typename Fn>
-    void iter_group(const std::vector<ComponentGroup<Ts...>>& groups, Fn&& fn) const {
-        for (auto& group : groups) {
-            fn(slabFor<Ts>().raw()[group.indices[0]]...);
-        }
     }
 
     template<typename... Ts, typename Fn>

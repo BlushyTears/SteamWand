@@ -65,17 +65,17 @@ void basicExamples() {
 }
 
 int main() {
-    //basicExamples();
+    basicExamples();
     linear_iteration();
     backwards_query();
     multi_query_single_world();
     backwards_query_proto();
-    std::cout << "\nArchetype:\n\n";
+    std::cout << "\nEcs Archetype for benchmark:\n\n";
     archetype_queries();
     archetype_multi();
     backwards_query_archetype();
 
-    std::cout << "\Zombie 1v1 prototype vs archetype maxed out performance:\n\n";
+    std::cout << "\Zombie 1v1 prototype vs Archetype maxed out performance:\n\n";
     
     zombie_update();
     zombie_update_archetype();
