@@ -8,13 +8,6 @@
 - **Recompile only when the type system changes:** Everything else is runtime
 - **The structure is enforced by the end-user:** You can store atoms like vectors, hashmaps, objects, custom data structures, nothing at all or however you like for keeping things organized in your game.
 ---
-## Core Data Model
-All data lives in a `World`: a collection of per-type slabs, one contiguous array per type registered in `AtomTypes`.
-
-```cpp
-using AtomTypes = std::tuple<int32_t, uint32_t, float, Vec2, Vec3>;
-
-------------------------------------------------------------------------
 
 # Core Data Model
 
@@ -38,7 +31,7 @@ AtomBase* speed = world.create(float(3.5f));
 AtomBase* position = world.create(Vec3{1,2,3});
 ```
 
-Atoms can optionally be associated with an entity:
+Atoms can optionally be associated with an entity (Or not, you can just store the address directly in a vector or something):
 
 ``` cpp
 AtomBase* hp = world.create(int32_t(100), entity_id);
@@ -125,7 +118,7 @@ Reverse indices are optional and independent of the world.
 
 # Component Groups
 
-Component groups allow lightweight archetype-style structures.
+Component groups allow loosely coupled archetype-style structures.
 
 ``` cpp
 auto entity = world.create_entity(
@@ -145,7 +138,7 @@ world.iter_group(groups, [](Vec3& pos, float& speed, bool& active)
 });
 ```
 
-This provides structured iteration without archetype migration.
+This provides structured iteration without archetype-like migration as seen below.
 
 ------------------------------------------------------------------------
 
@@ -161,47 +154,6 @@ world.query_parallel<Vec3, float>([](Vec3& pos, float& speed)
 ```
 
 Useful when components share aligned indices.
-
-------------------------------------------------------------------------
-
-# Memory Model
-
-Slabs allocate fixed arrays at world creation:
-
-``` cpp
-World world(1024);
-```
-
-Each slab receives capacity `1024`.
-
-Atoms are reused using a freelist.
-
-Memory operations:
-
-  Operation     Description
-  ------------- -------------------------
-  create        allocate slot
-  free          return slot to freelist
-  clear         reset entire slab
-  free_entity   free multiple atoms
-
-No per-atom `new` or `delete` is ever performed.
-
-------------------------------------------------------------------------
-
-# Generation Safety
-
-Handles include generation numbers.
-
-When an atom is freed:
-
-    generation++
-
-Access checks verify:
-
-    handle.generation == slab.generation[index]
-
-This prevents use-after-free errors.
 
 ------------------------------------------------------------------------
 
