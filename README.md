@@ -54,8 +54,8 @@ Atoms are lightweight handles referencing slab storage.
 ``` cpp
 struct AtomBase {
     uint32_t index;
-    uint8_t  tag;
-    uint8_t  generation;
+    uint8_t tag;
+    uint8_t generation;
     uint16_t entity_id;
 };
 ```
@@ -89,28 +89,6 @@ Atoms can optionally be associated with an entity:
 
 ``` cpp
 AtomBase* hp = world.create(int32_t(100), entity_id);
-```
-
-------------------------------------------------------------------------
-
-# Typed Access
-
-Values are accessed using their type.
-
-``` cpp
-world.value_of<int32_t>(hp) = 200;
-```
-
-Handles provide convenient proxy access:
-
-``` cpp
-auto h = world.get_handle<Vec3>(position);
-*h = {5,0,3};
-
-if (h.valid())
-{
-    auto entity = h.entity_id();
-}
 ```
 
 ------------------------------------------------------------------------
@@ -291,60 +269,25 @@ std::ostream& operator<<(std::ostream&, const T&)
 
 ------------------------------------------------------------------------
 
-# Adding a New Type
+## Adding a New Type
 
-1.  Define the datatype
+1. Define your datatype (type alias, enum, struct, union)
+2. Add it to `AtomTypes`
+3. Define `operator<<` if you want `print` to support it
 
-``` cpp
-struct Health
-{
-    float current;
-    float max;
-};
-```
+```cpp
+struct Health { float current, max; };
 
-2.  Add it to `AtomTypes`
-
-``` cpp
-using AtomTypes = std::tuple<
-    int32_t,
-    uint32_t,
-    float,
-    Vec2,
-    Vec3,
-    bool,
-    Health
->;
-```
-
-3.  Optionally implement printing
-
-``` cpp
-std::ostream& operator<<(std::ostream& os, const Health& h)
-{
+inline std::ostream& operator<<(std::ostream& os, const Health& h) {
     return os << h.current << "/" << h.max;
 }
-```
 
-Recompile once to update the type system.
+using AtomTypes = std::tuple<int32_t, uint32_t, float, Vec2, Vec3, Health>;
 
 ------------------------------------------------------------------------
 
-# Why SteamWand?
-
-Compared to typical ECS frameworks:
-
-  Feature                      SteamWand
-  ---------------------------- -----------
-  Per-type slabs
-  Runtime dispatch
-  Generation-safe handles
-  Optional entity model
-  Minimal engine assumptions
-  No archetype migration
-
-SteamWand focuses on **simple, predictable, data-oriented storage**
-rather than a full gameplay framework.
+## Why SteamWand?
+Cache-friendly per-type storage with zero archetype overhead and a scripting bridge that doesn't require recompilation. Entities are runtime-composed bags of atoms. No archetype migrations, no component registries: Javascript-like freedom.
 
 ------------------------------------------------------------------------
 
