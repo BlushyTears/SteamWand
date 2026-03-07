@@ -63,7 +63,7 @@ These loops only scan **active slots**.
 
 # Entities
 
-Entities can be simple collections of atoms.
+Entities represent a collection of atoms (Am considering molecyles over entities).
 
 ``` cpp
 std::vector<AtomBase*> zombie = {
@@ -72,21 +72,31 @@ std::vector<AtomBase*> zombie = {
     world.create(Vec3{0,0,0})
 };
 ```
-
-Cloning entities:
+Cloning the same entities:
 
 ``` cpp
 auto boss = world.clone_entity(zombie);
 ```
 
-Freeing entities:
+Freeing original entities does not impact the copy:
 
 ``` cpp
 world.free_entity(zombie);
 ```
 
 Because atoms store `entity_id`, entity tracking can also be implemented
-externally.
+externally. 
+
+Or if you like OOP, you can store atoms in a conventional object. The sky is the limit.
+Note: Currently only vectors are supported for helper functions such as free, clone etc.
+
+``` cpp
+struct Character {
+    AtomBase* health;
+    AtomBase* strength;
+    AtomBase* speed;
+};
+```
 
 ------------------------------------------------------------------------
 
