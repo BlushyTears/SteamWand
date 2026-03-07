@@ -24,53 +24,6 @@ defined in `AtomTypes`.
 ``` cpp
 using AtomTypes = std::tuple<int32_t, uint32_t, float, Vec2, Vec3, bool>;
 ```
-
-Each type gets its own slab:
-
-    World
-     ├─ TypedSlab<int32_t>
-     ├─ TypedSlab<uint32_t>
-     ├─ TypedSlab<float>
-     ├─ TypedSlab<Vec2>
-     ├─ TypedSlab<Vec3>
-     └─ TypedSlab<bool>
-
-Each slab stores several arrays:
-
-    values[]
-    tags[]
-    generations[]
-    handles[]
-    freelist
-
-This produces a **structure-of-arrays layout** optimized for iteration.
-
-------------------------------------------------------------------------
-
-# Atom Structure
-
-Atoms are lightweight handles referencing slab storage.
-
-``` cpp
-struct AtomBase {
-    uint32_t index;
-    uint8_t tag;
-    uint8_t generation;
-    uint16_t entity_id;
-};
-```
-
-Fields:
-
-  Field        Purpose
-  ------------ -----------------------------
-  index        Slot index in slab
-  tag          Runtime type identifier
-  generation   Detects stale handles
-  entity_id    Optional entity association
-
-Handles remain stable until freed.
-
 ------------------------------------------------------------------------
 
 # Creating Atoms
@@ -107,9 +60,8 @@ world.iter<Vec3>([](Vec3& pos)
 Index-aware iteration:
 
 ``` cpp
-world.iter_with_index<Vec3>([](Vec3& pos, uint32_t index)
-{
-    pos.y += index;
+world.iter_with_index<Vec3>([](Vec3& pos, uint32_t index) {
+    if (index % 2 == 0) pos.x += 1.0f;
 });
 ```
 
@@ -308,7 +260,3 @@ Future ideas include:
 Open source forever. Use it however you like — no strings attached.
 
 ------------------------------------------------------------------------
-
-# License
-
-Open source forever. Use it however you like - no strings attatched.
