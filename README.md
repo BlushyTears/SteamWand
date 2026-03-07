@@ -286,21 +286,25 @@ using AtomTypes = std::tuple<int32_t, uint32_t, float, Vec2, Vec3, Health>;
 
 ------------------------------------------------------------------------
 
-## Why SteamWand?
+## Why SteamWand
 Cache-friendly per-type storage with zero archetype overhead and a scripting bridge that doesn't require recompilation. Entities are runtime-composed bags of atoms. No archetype migrations, no component registries: Javascript-like freedom.
 
 ------------------------------------------------------------------------
 
-# Planned Features
-
+## Planned Features
 Future ideas include:
 
--   multi-threaded slab iteration
--   coroutine-friendly task systems
--   dynamic slab expansion
--   compile-time query helpers
--   serialization utilities
--   scripting integration
+- multi-threaded slab iteration
+- coroutine-friendly task systems
+- dynamic slab expansion
+- compile-time query helpers
+- serialization utilities
+- scripting integration
+
+---
+
+## License
+Open source forever. Use it however you like — no strings attached.
 
 ------------------------------------------------------------------------
 
