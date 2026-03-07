@@ -16,35 +16,6 @@ using AtomTypes = std::tuple<int32_t, uint32_t, float, Vec2, Vec3>;
 
 ------------------------------------------------------------------------
 
-# Core Philosophy
-
-### Data-oriented storage
-
-Each type is stored in a **contiguous slab**. Iteration is
-cache-friendly and branch-free.
-
-### Pay only for what you use
-
-Slabs allocate fixed arrays per type. **Atoms themselves are never heap
-allocated**.
-
-### Runtime composition
-
-Entities can be constructed dynamically by combining atoms. No
-inheritance trees or rigid archetype migrations.
-
-### Stable handles
-
-Atoms use **generation counters** so stale handles can be detected
-safely.
-
-### Minimal engine assumptions
-
-SteamWand does not enforce game architecture. You can build ECS-like
-systems, object graphs, or custom gameplay data structures.
-
-------------------------------------------------------------------------
-
 # Core Data Model
 
 All data lives inside a `World`. The world owns **one slab per type**
