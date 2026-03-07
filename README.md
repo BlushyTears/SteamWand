@@ -10,109 +10,386 @@
 ---
 ## Core Data Model
 All data lives in a `World`: a collection of per-type slabs, one contiguous array per type registered in `AtomTypes`.
+
 ```cpp
 using AtomTypes = std::tuple<int32_t, uint32_t, float, Vec2, Vec3>;
-```
-Adding a new type costs one word. Each slab is fixed-size and cache-friendly. `iter<T>` is a pure linear scan with no branching. Each atom carries a `uint8_t` tag for O(1) type dispatch.
 
----
-## Entities & Composition
-Entities are `vector<AtomBase*>`. Bags of typed atoms composed freely at runtime.
-```cpp
-World world(1024);
-std::vector<AtomBase*> zombie = {
-    world.create(int32_t(100)),
-    world.create(3.5f),
-    world.create(uint32_t(3))
+------------------------------------------------------------------------
+
+# Core Philosophy
+
+### Data-oriented storage
+
+Each type is stored in a **contiguous slab**. Iteration is
+cache-friendly and branch-free.
+
+### Pay only for what you use
+
+Slabs allocate fixed arrays per type. **Atoms themselves are never heap
+allocated**.
+
+### Runtime composition
+
+Entities can be constructed dynamically by combining atoms. No
+inheritance trees or rigid archetype migrations.
+
+### Stable handles
+
+Atoms use **generation counters** so stale handles can be detected
+safely.
+
+### Minimal engine assumptions
+
+SteamWand does not enforce game architecture. You can build ECS-like
+systems, object graphs, or custom gameplay data structures.
+
+------------------------------------------------------------------------
+
+# Core Data Model
+
+All data lives inside a `World`. The world owns **one slab per type**
+defined in `AtomTypes`.
+
+``` cpp
+using AtomTypes = std::tuple<int32_t, uint32_t, float, Vec2, Vec3, bool>;
+```
+
+Each type gets its own slab:
+
+    World
+     ├─ TypedSlab<int32_t>
+     ├─ TypedSlab<uint32_t>
+     ├─ TypedSlab<float>
+     ├─ TypedSlab<Vec2>
+     ├─ TypedSlab<Vec3>
+     └─ TypedSlab<bool>
+
+Each slab stores several arrays:
+
+    values[]
+    tags[]
+    generations[]
+    handles[]
+    freelist
+
+This produces a **structure-of-arrays layout** optimized for iteration.
+
+------------------------------------------------------------------------
+
+# Atom Structure
+
+Atoms are lightweight handles referencing slab storage.
+
+``` cpp
+struct AtomBase {
+    uint32_t index;
+    uint8_t  tag;
+    uint8_t  generation;
+    uint16_t entity_id;
 };
 ```
-A boss zombie can clone a normal zombie, eject unused atoms, and add new ones without caring about the underlying types:
-```cpp
+
+Fields:
+
+  Field        Purpose
+  ------------ -----------------------------
+  index        Slot index in slab
+  tag          Runtime type identifier
+  generation   Detects stale handles
+  entity_id    Optional entity association
+
+Handles remain stable until freed.
+
+------------------------------------------------------------------------
+
+# Creating Atoms
+
+Atoms are created through the `World`.
+
+``` cpp
+World world(1024);
+
+AtomBase* hp = world.create(int32_t(100));
+AtomBase* speed = world.create(float(3.5f));
+AtomBase* position = world.create(Vec3{1,2,3});
+```
+
+Atoms can optionally be associated with an entity:
+
+``` cpp
+AtomBase* hp = world.create(int32_t(100), entity_id);
+```
+
+------------------------------------------------------------------------
+
+# Typed Access
+
+Values are accessed using their type.
+
+``` cpp
+world.value_of<int32_t>(hp) = 200;
+```
+
+Handles provide convenient proxy access:
+
+``` cpp
+auto h = world.get_handle<Vec3>(position);
+*h = {5,0,3};
+
+if (h.valid())
+{
+    auto entity = h.entity_id();
+}
+```
+
+------------------------------------------------------------------------
+
+# Iteration
+
+Fast iteration across slabs:
+
+``` cpp
+world.iter<Vec3>([](Vec3& pos)
+{
+    pos.x += 1;
+});
+```
+
+Index-aware iteration:
+
+``` cpp
+world.iter_with_index<Vec3>([](Vec3& pos, uint32_t index)
+{
+    pos.y += index;
+});
+```
+
+These loops scan **only active slots**.
+
+------------------------------------------------------------------------
+
+# Entities
+
+Entities can be simple collections of atoms.
+
+``` cpp
+std::vector<AtomBase*> zombie = {
+    world.create(int32_t(100)),
+    world.create(float(2.0f)),
+    world.create(Vec3{0,0,0})
+};
+```
+
+Cloning entities:
+
+``` cpp
 auto boss = world.clone_entity(zombie);
-boss.push_back(world.create(int32_t(100)));
-world.free_entity(zombie); // boss zombie still resides
 ```
----
-## API
-```cpp
-// Creation & destruction
-world.create(Vec3{ 1, 2, 3 });
-world.free<Vec3>(atom);
-world.free_entity(entity);
-world.clone_entity(entity);
 
-// Typed access
-world.value_of<int32_t>(atom) = 5;
+Freeing entities:
 
-// Handle (reference proxy)
-auto h = world.get_handle<Vec3>(atom);
-*h = { 1, 2, 3 };
-
-// Iteration
-world.iter<Vec3>([](Vec3& v) { ... });
-
-// Runtime type dispatch
-world.dispatch(atom, [](auto& v) { ... });
+``` cpp
+world.free_entity(zombie);
 ```
----
-## Back-querying
-`ReverseIndex<T>` is a standalone opt-in structure. The world knows nothing about it. If you need to go from an entity ID to a specific component, create one yourself:
-```cpp
+
+Because atoms store `entity_id`, entity tracking can also be implemented
+externally.
+
+------------------------------------------------------------------------
+
+# Reverse Index
+
+`ReverseIndex<T>` provides fast lookup from **entity → component**.
+
+``` cpp
 ReverseIndex<Vec3> positions(1024);
+
 positions.insert(entity_id, atom);
 
 AtomBase* found = positions.get_atom(entity_id);
 ```
+
 Iteration with entity context:
-```cpp
-positions.iter([&](uint32_t entity_id, AtomBase* atom) {
+
+``` cpp
+positions.iter([&](uint32_t entity, AtomBase* atom)
+{
     Vec3& pos = world.value_of<Vec3>(atom);
 });
 ```
-If you need to go the other way: given an atom, in order to get back its whole entity, you maintain that mapping yourself:
-```cpp
-std::unordered_map<AtomBase*, std::vector<AtomBase*>*> atom_to_entity;
 
-std::vector<AtomBase*> zombie = { hp_p, spd_p, target_p };
-for (auto* atom : zombie)
-    atom_to_entity[atom] = &zombie;
+Reverse indices are optional and independent of the world.
 
-// given any atom, get all its siblings
-auto* entity = atom_to_entity[some_atom];
+------------------------------------------------------------------------
+
+# Component Groups
+
+Component groups allow lightweight archetype-style structures.
+
+``` cpp
+auto entity = world.create_entity(
+    Vec3{0,0,0},
+    float(10),
+    bool(true)
+);
 ```
----
-## Memory Model
-Atoms live inside fixed slab arrays inside `World`. Nothing is heap-allocated per atom. No `delete` is ever needed. `world.free<T>(atom)` returns the slot to a freelist for reuse. If reuse isn't needed, it can be skipped entirely. Everything is cleaned up when `World` goes out of scope.
 
-| Strategy | Use case |
-|---|---|
-| `free<T>(atom)` | Return a single slot to the freelist, O(1) |
-| `free_entity(entity)` | Free all atoms in an entity |
-| `vecWorld.clear<Vec3>();` | Clearing all Vec3-related components in a world |
----
-## Scripting (Lua)
-`dispatch` is the planned Lua bridge. Push any atom to Lua without knowing its type at the C++ call site, pull values back by tag. Game data changes without recompilation. Only new types in `AtomTypes` require a rebuild.
+Group iteration:
 
----
-## Why this over ECS?
-Cache-friendly per-type storage with zero archetype overhead and a scripting bridge that doesn't require recompilation. Entities are runtime-composed bags of atoms. No archetype migrations, no component registries: Javascript-like freedom. If you want maximum cache locality you can opt to do so by creating more domain specific worlds based on usage patterns.
+``` cpp
+world.iter_group(groups, [](Vec3& pos, float& speed, bool& active)
+{
+    if(active)
+        pos.x += speed;
+});
+```
 
----
-## Planned
-- **Concurrency:** Tagged task queues, decoupled per system, thread-safe slab access via coroutines
-- **Overflow:** Linked slab extension if capacity is exceeded at runtime (Linked list style probs)
-- **Queries:** Iterator-based multi-type querying via metaprogramming
-- **Multi-Stream Buffer:** For handling larger amounts of repetitive data
+This provides structured iteration without archetype migration.
 
----
-## Adding a New Type
-1. Define your datatype (type alias, enum, struct, union)
-2. Add it to `AtomTypes`
-3. Define `operator<<` if you want `print` to support it
-```cpp
-struct Health { float current, max; };
-inline std::ostream& operator<<(std::ostream& os, const Health& h) {
+------------------------------------------------------------------------
+
+# Parallel Queries
+
+Lockstep iteration across multiple slabs:
+
+``` cpp
+world.query_parallel<Vec3, float>([](Vec3& pos, float& speed)
+{
+    pos.x += speed;
+});
+```
+
+Useful when components share aligned indices.
+
+------------------------------------------------------------------------
+
+# Memory Model
+
+Slabs allocate fixed arrays at world creation:
+
+``` cpp
+World world(1024);
+```
+
+Each slab receives capacity `1024`.
+
+Atoms are reused using a freelist.
+
+Memory operations:
+
+  Operation     Description
+  ------------- -------------------------
+  create        allocate slot
+  free          return slot to freelist
+  clear         reset entire slab
+  free_entity   free multiple atoms
+
+No per-atom `new` or `delete` is ever performed.
+
+------------------------------------------------------------------------
+
+# Generation Safety
+
+Handles include generation numbers.
+
+When an atom is freed:
+
+    generation++
+
+Access checks verify:
+
+    handle.generation == slab.generation[index]
+
+This prevents use-after-free errors.
+
+------------------------------------------------------------------------
+
+# Printing
+
+Atoms can be printed generically:
+
+``` cpp
+world.print(atom);
+```
+
+Custom types can implement:
+
+``` cpp
+std::ostream& operator<<(std::ostream&, const T&)
+```
+
+------------------------------------------------------------------------
+
+# Adding a New Type
+
+1.  Define the datatype
+
+``` cpp
+struct Health
+{
+    float current;
+    float max;
+};
+```
+
+2.  Add it to `AtomTypes`
+
+``` cpp
+using AtomTypes = std::tuple<
+    int32_t,
+    uint32_t,
+    float,
+    Vec2,
+    Vec3,
+    bool,
+    Health
+>;
+```
+
+3.  Optionally implement printing
+
+``` cpp
+std::ostream& operator<<(std::ostream& os, const Health& h)
+{
     return os << h.current << "/" << h.max;
 }
-using AtomTypes = std::tuple<int32_t, uint32_t, float, Vec2, Vec3, Health>;
 ```
+
+Recompile once to update the type system.
+
+------------------------------------------------------------------------
+
+# Why SteamWand?
+
+Compared to typical ECS frameworks:
+
+  Feature                      SteamWand
+  ---------------------------- -----------
+  Per-type slabs
+  Runtime dispatch
+  Generation-safe handles
+  Optional entity model
+  Minimal engine assumptions
+  No archetype migration
+
+SteamWand focuses on **simple, predictable, data-oriented storage**
+rather than a full gameplay framework.
+
+------------------------------------------------------------------------
+
+# Planned Features
+
+Future ideas include:
+
+-   multi-threaded slab iteration
+-   coroutine-friendly task systems
+-   dynamic slab expansion
+-   compile-time query helpers
+-   serialization utilities
+-   scripting integration
+
+------------------------------------------------------------------------
+
+# License
+
+Open source forever. Use it however you like - no strings attatched.
