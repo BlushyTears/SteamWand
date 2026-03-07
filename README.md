@@ -44,8 +44,7 @@ AtomBase* hp = world.create(int32_t(100), entity_id);
 Fast iteration across slabs:
 
 ``` cpp
-world.iter<Vec3>([](Vec3& pos)
-{
+world.iter<Vec3>([](Vec3& pos){
     pos.x += 1;
 });
 ```
@@ -58,7 +57,7 @@ world.iter_with_index<Vec3>([](Vec3& pos, uint32_t index) {
 });
 ```
 
-These loops scan **only active slots**.
+These loops only scan **active slots**.
 
 ------------------------------------------------------------------------
 
@@ -192,7 +191,7 @@ using AtomTypes = std::tuple<int32_t, uint32_t, float, Vec2, Vec3, Health>;
 ------------------------------------------------------------------------
 
 ## Why SteamWand
-Cache-friendly per-type storage with zero archetype overhead and a scripting bridge that does not require recompilation. Entities are runtime-composed bags of atoms. No archetype migrations, no component registries: Javascript-like freedom.
+Cache-friendly per-type storage with zero archetype overhead and a scripting bridge that does not require recompilation. Entities are runtime-composed bags of atoms. No archetype migrations, no component registries: Javascript-like freedom that respects the programmer with more tools - not less.
 
 ------------------------------------------------------------------------
 
