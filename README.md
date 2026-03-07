@@ -105,8 +105,7 @@ AtomBase* found = positions.get_atom(entity_id);
 Iteration with entity context:
 
 ``` cpp
-positions.iter([&](uint32_t entity, AtomBase* atom)
-{
+positions.iter([&](uint32_t entity, AtomBase* atom) {
     Vec3& pos = world.value_of<Vec3>(atom);
 });
 ```
@@ -130,8 +129,7 @@ auto entity = world.create_entity(
 Group iteration:
 
 ``` cpp
-world.iter_group(groups, [](Vec3& pos, float& speed, bool& active)
-{
+world.iter_group(groups, [](Vec3& pos, float& speed, bool& active) {
     if(active)
         pos.x += speed;
 });
@@ -146,8 +144,7 @@ This provides structured iteration without archetype-like migration as seen belo
 Lockstep iteration across multiple slabs:
 
 ``` cpp
-world.query_parallel<Vec3, float>([](Vec3& pos, float& speed)
-{
+world.query_parallel<Vec3, float>([](Vec3& pos, float& speed){
     pos.x += speed;
 });
 ```
@@ -181,11 +178,9 @@ std::ostream& operator<<(std::ostream&, const T&)
 ```cpp
 struct Health { float current, max; };
 
-inline std::ostream& operator<<(std::ostream& os, const Health& h) {
-    return os << h.current << "/" << h.max;
-}
+inline std::ostream& operator<<(std::ostream& os, const Health& h) { return os << h.current << "/" << h.max; }
 
-using AtomTypes = std::tuple<int32_t, uint32_t, float, Vec2, Vec3, Health>;
+using AtomTypes = std::tuple<int32_t, uint32_t, float, Vec2, Vec3, Health>; // health added here
 
 ```
 ------------------------------------------------------------------------
