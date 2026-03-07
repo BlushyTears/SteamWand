@@ -284,10 +284,11 @@ inline std::ostream& operator<<(std::ostream& os, const Health& h) {
 
 using AtomTypes = std::tuple<int32_t, uint32_t, float, Vec2, Vec3, Health>;
 
+```
 ------------------------------------------------------------------------
 
 ## Why SteamWand
-Cache-friendly per-type storage with zero archetype overhead and a scripting bridge that doesn't require recompilation. Entities are runtime-composed bags of atoms. No archetype migrations, no component registries: Javascript-like freedom.
+Cache-friendly per-type storage with zero archetype overhead and a scripting bridge that does not require recompilation. Entities are runtime-composed bags of atoms. No archetype migrations, no component registries: Javascript-like freedom.
 
 ------------------------------------------------------------------------
 
