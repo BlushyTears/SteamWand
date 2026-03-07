@@ -28,7 +28,7 @@ World world(1024);
 
 AtomBase* hp = world.create(int32_t(100));
 AtomBase* speed = world.create(float(3.5f));
-AtomBase* position = world.create(Vec3{1,2,3});
+AtomBase* position = world.create(Vec3{1, 2, 3});
 ```
 
 Atoms can optionally be associated with an entity (Or not, you can just store the address directly in a vector or something):
@@ -69,7 +69,7 @@ Entities can be simple collections of atoms.
 std::vector<AtomBase*> zombie = {
     world.create(int32_t(100)),
     world.create(float(2.0f)),
-    world.create(Vec3{0,0,0})
+    world.create(Vec3{0, 0, 0})
 };
 ```
 

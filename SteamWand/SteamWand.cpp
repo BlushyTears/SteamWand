@@ -7,6 +7,12 @@
 #define NOW() std::chrono::high_resolution_clock::now()
 #define MS(start, end) std::chrono::duration<double, std::milli>(end - start).count()
 
+struct Character {
+    AtomBase* health;
+    AtomBase* strength;
+    AtomBase* speed;
+};
+
 void basicExamples() {
     const size_t COUNT = 1000000;
     World world(COUNT);
@@ -51,7 +57,7 @@ void basicExamples() {
 
     world.free_entity(super_zombie);
     // Clear integers here to demostrate the potential
-    vecWorld.clear<int>();
+    vecWorld.clear<Vec3>();
 
     // Loop unrolling can be a good idea since cout is slow and hurts cache performance
     vecWorld.iter<Vec3>([](Vec3& v) {
@@ -62,10 +68,11 @@ void basicExamples() {
     vecWorld.iter<int>([](int& v) {
         std::cout << v << "\n";
         });
+
 }
 
 int main() {
-    basicExamples();
+    //basicExamples();
     linear_iteration();
     backwards_query();
     multi_query_single_world();
@@ -75,7 +82,7 @@ int main() {
     archetype_multi();
     backwards_query_archetype();
 
-    std::cout << "\Zombie 1v1 prototype vs Archetype maxed out performance:\n\n";
+    std::cout << std::endl << "Zombie 1v1 prototype vs Archetype maxed out performance:" << std::endl;
     
     zombie_update();
     zombie_update_archetype();

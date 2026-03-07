@@ -222,7 +222,7 @@ void archetype_queries() {
 
 void archetype_multi() {
     std::vector<float> px, py, pz, speed;
-    std::vector<int>   health;
+    std::vector<int> health;
 
     px.reserve(ITEMS);
     py.reserve(ITEMS);

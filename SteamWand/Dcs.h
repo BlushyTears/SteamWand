@@ -37,8 +37,8 @@ constexpr uint32_t INVALID_ID = UINT32_MAX;
 
 struct AtomBase {
     uint32_t index;
-    uint8_t  tag;
-    uint8_t  generation;
+    uint8_t tag;
+    uint8_t generation;
     uint16_t entity_id;
 };
 
@@ -144,86 +144,39 @@ struct TypedSlab {
 
 private:
     uint32_t cap;
-    std::unique_ptr<T[]>        values;
-    std::unique_ptr<uint8_t[]>  tags;
-    std::unique_ptr<uint8_t[]>  generations;
+    std::unique_ptr<T[]> values;
+    std::unique_ptr<uint8_t[]> tags;
+    std::unique_ptr<uint8_t[]> generations;
     std::unique_ptr<AtomBase[]> handles;
-    std::vector<uint32_t>       free_indices;
-};
-
-template<typename T>
-struct ReverseIndex {
-    ReverseIndex(size_t max_entities) {
-        sparse.assign(max_entities, INVALID_ID);
-    }
-
-    void insert(uint32_t entity_id, AtomBase* atom) noexcept {
-        assert(entity_id < sparse.size());
-        assert(sparse[entity_id] == INVALID_ID);
-
-        sparse[entity_id] = static_cast<uint32_t>(dense_entity.size());
-        dense_entity.push_back(entity_id);
-        dense_atom.push_back(atom);
-    }
-
-    void remove(uint32_t entity_id) noexcept {
-        assert(entity_id < sparse.size());
-
-        uint32_t idx = sparse[entity_id];
-        uint32_t last = static_cast<uint32_t>(dense_entity.size()) - 1;
-
-        if (idx != last) {
-            dense_entity[idx] = dense_entity[last];
-            dense_atom[idx] = dense_atom[last];
-            sparse[dense_entity[idx]] = idx;
-        }
-
-        dense_entity.pop_back();
-        dense_atom.pop_back();
-        sparse[entity_id] = INVALID_ID;
-    }
-
-    AtomBase* get_atom(uint32_t entity_id) const noexcept {
-        uint32_t idx = sparse[entity_id];
-        if (idx == INVALID_ID)
-            return nullptr;
-        return dense_atom[idx];
-    }
-
-    bool has(uint32_t entity_id) const noexcept {
-        return entity_id < sparse.size() && sparse[entity_id] != INVALID_ID;
-    }
-
-    template<typename Fn>
-    void iter(Fn&& fn) const noexcept {
-        for (size_t i = 0; i < dense_entity.size(); ++i)
-            fn(dense_entity[i], dense_atom[i]);
-    }
-
-private:
-    std::vector<uint32_t>  sparse;
-    std::vector<uint32_t>  dense_entity;
-    std::vector<AtomBase*> dense_atom;
+    std::vector<uint32_t> free_indices;
 };
 
 struct World {
     template<typename... Ts>
-    static std::tuple<TypedSlab<Ts>...> make_slabs_type(std::tuple<Ts...>);
-    using SlabsTuple = decltype(make_slabs_type(std::declval<AtomTypes>()));
+    static std::tuple<TypedSlab<Ts>...> make_slabs(std::tuple<Ts...>, uint32_t cap) {
+        return std::make_tuple(TypedSlab<Ts>(cap)...);
+    }
+
+    using SlabsTuple = decltype(make_slabs(std::declval<AtomTypes>(), 0));
 
     World(uint32_t capacity) {
-        slabs = std::make_unique<SlabsTuple>(init_slabs(capacity, std::make_index_sequence<std::tuple_size_v<AtomTypes>>{}));
+        slabs = std::make_unique<SlabsTuple>(make_slabs(AtomTypes{}, capacity));
+    }
+
+    template<typename T>
+    auto& slabFor() const noexcept {
+        return std::get<TypedSlab<T>>(*slabs);
     }
 
     template<typename T>
     AtomBase* create(const T& val, uint16_t entity_id = 0) noexcept {
-        return slabFor<T>().create(val, entity_id);
+        return const_cast<TypedSlab<T>&>(slabFor<T>()).create(val, entity_id);
     }
 
     template<typename T>
     void free(AtomBase* atom) noexcept {
         if (valid<T>(atom))
-            slabFor<T>().free(atom);
+            const_cast<TypedSlab<T>&>(slabFor<T>()).free(atom);
     }
 
     template<typename T, typename Fn>
@@ -238,7 +191,7 @@ struct World {
 
     template<typename T>
     T& value_of(AtomBase* atom) noexcept {
-        return slabFor<T>().get_value(atom);
+        return const_cast<TypedSlab<T>&>(slabFor<T>()).get_value(atom);
     }
 
     template<typename T>
@@ -263,7 +216,7 @@ struct World {
 
     template<typename T>
     void clear() noexcept {
-        slabFor<T>().clear();
+        const_cast<TypedSlab<T>&>(slabFor<T>()).clear();
     }
 
     void print(AtomBase* atom) const {
@@ -325,32 +278,20 @@ struct World {
     void dispatch(AtomBase* atom, Fn&& fn) const {
         if (!atom) return;
         [&] <size_t... I>(std::index_sequence<I...>) {
-            ((atom->tag == tag_of<std::tuple_element_t<I, AtomTypes>>()
+            ((atom->tag == (I + 1)
                 ? [&] { fn(value_of<std::tuple_element_t<I, AtomTypes>>(atom)); return true; }()
                 : false) || ...);
         }(std::make_index_sequence<std::tuple_size_v<AtomTypes>>{});
     }
 
-    template<typename T>
-    auto& slabFor() const noexcept {
-        return std::get<TypedSlab<T>>(*slabs);
-    }
-
     template<typename... Ts, typename Fn>
     void query_parallel(Fn&& fn) const noexcept {
         size_t count = (std::min)({ slabFor<Ts>().allocated_count()... });
-        [&] <size_t... I>(std::index_sequence<I...>) {
-            for (size_t i = 0; i < count; i++) {
-                fn(slabFor<std::tuple_element_t<I, std::tuple<Ts...>>>().raw()[i]...);
-            }
-        }(std::index_sequence_for<Ts...>{});
+        for (size_t i = 0; i < count; i++) {
+            fn(slabFor<Ts>().raw()[i]...);
+        }
     }
 
 private:
-    template<size_t... I>
-    SlabsTuple init_slabs(uint32_t cap, std::index_sequence<I...>) {
-        return std::make_tuple(TypedSlab<std::tuple_element_t<I, AtomTypes>>(cap)...);
-    }
-
     std::unique_ptr<SlabsTuple> slabs;
 };
