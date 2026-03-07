@@ -1,10 +1,15 @@
 #include "Dcs.h"
 #include <iostream>
+#include "Benchmarks.h"
+#include <chrono>
 
-int main() {
+#define ITEMS 25000000
+#define NOW() std::chrono::high_resolution_clock::now()
+#define MS(start, end) std::chrono::duration<double, std::milli>(end - start).count()
+
+void basicExamples() {
     const size_t COUNT = 1000000;
     World world(COUNT);
-
 
     auto* atom = world.create(int(5));
     world.free<int>(atom);
@@ -18,7 +23,7 @@ int main() {
     auto* hp_p = world.create(int(100));
     auto* spd_p = world.create(3.5f);
     auto* wealth_p = world.create(int(3));
-    auto* target_p = world.create(Vec3{ 2, 5, 10 });
+    auto* target_p = world.create(int(5));
 
     std::vector<AtomBase*> zombie = { hp_p, spd_p, wealth_p, target_p };
     std::cout << "Normal zombie wealth: " << world.value_of<int>(zombie[2]) << "\n";
@@ -29,17 +34,6 @@ int main() {
 
     world.value_of<int>(super_zombie[2]) = 5;
     std::cout << "Super zombie wealth: " << world.value_of<int>(super_zombie[2]) << "\n";
-
-    auto target_h = world.get_handle<Vec3>(target_p);
-    *target_h = { 1, 2, 3 };
-
-    // optional back-querying — user opts in by creating a ReverseIndex
-    ReverseIndex<Vec3> positions(COUNT);
-    positions.insert(0, target_p);
-
-    AtomBase* found = positions.get_atom(0);
-    if (found)
-        std::cout << "Found position: " << world.value_of<Vec3>(found) << "\n";
 
     // - Cache friendly way to manage a list of vec3's -
     World vecWorld(COUNT);
@@ -53,7 +47,7 @@ int main() {
         v.x += 1.0f;
         v.y += 2.0f;
         v.z += 3.0f;
-    });
+        });
 
     world.free_entity(super_zombie);
     // Clear integers here to demostrate the potential
@@ -68,6 +62,22 @@ int main() {
     vecWorld.iter<int>([](int& v) {
         std::cout << v << "\n";
         });
+}
 
+int main() {
+    //basicExamples();
+    linear_iteration();
+    backwards_query();
+    multi_query_single_world();
+    backwards_query_proto();
+    std::cout << "\nArchetype:\n\n";
+    archetype_queries();
+    archetype_multi();
+    backwards_query_archetype();
+
+    std::cout << "\Zombie 1v1 prototype vs archetype maxed out performance:\n\n";
+    
+    zombie_update();
+    zombie_update_archetype();
     return 0;
 }
