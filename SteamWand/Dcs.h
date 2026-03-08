@@ -7,6 +7,7 @@
 #include <cassert>
 #include <memory>
 #include <algorithm>
+#include <numeric>
 
 struct Vec2 { float x, y; };
 struct Vec3 { float x, y, z; };
@@ -32,7 +33,7 @@ constexpr uint8_t tag_of() noexcept {
     return static_cast<uint8_t>(type_index<T, AtomTypes>() + 1);
 }
 
-constexpr uint8_t  EMPTY_TAG = 0;
+constexpr uint8_t EMPTY_TAG = 0;
 constexpr uint32_t INVALID_ID = UINT32_MAX;
 
 struct AtomBase {
@@ -104,10 +105,15 @@ struct TypedSlab {
         }
     }
 
+    // unsafe arena-like clea
+    void clear_fast() noexcept {
+        memset(tags.get(), EMPTY_TAG, cap);
+        free_indices.resize(cap);
+        std::iota(free_indices.begin(), free_indices.end(), 0u);
+    }
+
     bool valid(AtomBase* atom) const noexcept {
-        return atom->index < cap &&
-            tags[atom->index] != EMPTY_TAG &&
-            atom->generation == generations[atom->index];
+        return atom->index < cap && tags[atom->index] != EMPTY_TAG && atom->generation == generations[atom->index];
     }
 
     T& get_value(AtomBase* atom) noexcept {
@@ -177,6 +183,11 @@ struct World {
     void free(AtomBase* atom) noexcept {
         if (valid<T>(atom))
             const_cast<TypedSlab<T>&>(slabFor<T>()).free(atom);
+    }
+
+    template<typename T>
+    void clear_slab_fast() noexcept {
+        const_cast<TypedSlab<T>&>(slabFor<T>()).clear_fast();
     }
 
     template<typename T, typename Fn>
@@ -274,14 +285,19 @@ struct World {
         return { atom, const_cast<World*>(this) };
     }
 
-    template<typename Fn>
+    template<size_t I = 0, typename Fn>
     void dispatch(AtomBase* atom, Fn&& fn) const {
-        if (!atom) return;
-        [&] <size_t... I>(std::index_sequence<I...>) {
-            ((atom->tag == (I + 1)
-                ? [&] { fn(value_of<std::tuple_element_t<I, AtomTypes>>(atom)); return true; }()
-                : false) || ...);
-        }(std::make_index_sequence<std::tuple_size_v<AtomTypes>>{});
+        if (!atom)
+            return;
+
+        if constexpr (I < std::tuple_size_v<AtomTypes>) {
+            if (atom->tag == I + 1) {
+                fn(value_of<std::tuple_element_t<I, AtomTypes>>(atom));
+            }
+            else {
+                dispatch<I + 1>(atom, std::forward<Fn>(fn));
+            }
+        }
     }
 
     template<typename... Ts, typename Fn>

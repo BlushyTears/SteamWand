@@ -69,22 +69,25 @@ void basicExamples() {
         std::cout << v << "\n";
         });
 
+    world.print(hp_p);
 }
 
 int main() {
-    //basicExamples();
+    std::cout << "Proto benchmark:\n";
     linear_iteration();
-    backwards_query();
+    query_parallel_proto();
     multi_query_single_world();
     backwards_query_proto();
-    std::cout << "\nEcs Archetype for benchmark:\n\n";
-    archetype_queries();
+
+    std::cout << "\nEcs Archetype for benchmark gauge:\n";
+    archetype_linear();
+    archetype_query();
     archetype_multi();
     backwards_query_archetype();
 
-    std::cout << std::endl << "Zombie 1v1 prototype vs Archetype maxed out performance:" << std::endl;
-    
+    std::cout << "\nZombie 1v1 prototype vs Archetype maxed out performance:\n";
     zombie_update();
     zombie_update_archetype();
+
     return 0;
 }
