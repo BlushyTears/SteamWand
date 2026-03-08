@@ -31,49 +31,50 @@ void basicExamples() {
     auto* wealth_p = world.create(int(3));
     auto* target_p = world.create(int(5));
 
-    std::vector<AtomBase*> zombie = { hp_p, spd_p, wealth_p, target_p };
-    std::cout << "Normal zombie wealth: " << world.value_of<int>(zombie[2]) << "\n";
+    //std::vector<AtomBase*> zombie = { hp_p, spd_p, wealth_p, target_p };
+    //std::cout << "Normal zombie wealth: " << world.value_of<int>(zombie[2]) << "\n";
 
-    std::vector<AtomBase*> super_zombie = world.clone_entity(zombie);
+    //std::vector<AtomBase*> super_zombie = world.clone_entity(zombie);
 
-    world.free_entity(zombie);
+    //world.free_entity(zombie);
 
-    world.value_of<int>(super_zombie[2]) = 5;
-    std::cout << "Super zombie wealth: " << world.value_of<int>(super_zombie[2]) << "\n";
+    //world.value_of<int>(super_zombie[2]) = 5;
+    //std::cout << "Super zombie wealth: " << world.value_of<int>(super_zombie[2]) << "\n";
 
-    // - Cache friendly way to manage a list of vec3's -
-    World vecWorld(COUNT);
+    //// - Cache friendly way to manage a list of vec3's -
+    //World vecWorld(COUNT);
 
-    for (int i = 0; i < 4; i++) {
-        auto pos = vecWorld.create(Vec3{ float(1 * i), float(2 * i), float(3 * i) });
-        auto pos2 = vecWorld.create(int(5));
-    }
+    //for (int i = 0; i < 4; i++) {
+    //    auto pos = vecWorld.create(Vec3{ float(1 * i), float(2 * i), float(3 * i) });
+    //    auto pos2 = vecWorld.create(int(5));
+    //}
 
-    vecWorld.iter<Vec3>([](Vec3& v) {
-        v.x += 1.0f;
-        v.y += 2.0f;
-        v.z += 3.0f;
-        });
+    //vecWorld.iter<Vec3>([](Vec3& v) {
+    //    v.x += 1.0f;
+    //    v.y += 2.0f;
+    //    v.z += 3.0f;
+    //    });
 
-    world.free_entity(super_zombie);
-    // Clear integers here to demostrate the potential
-    vecWorld.clear<Vec3>();
+    //world.free_entity(super_zombie);
+    //// Clear integers here to demostrate the potential
+    //vecWorld.clear_all<Vec3>();
 
-    // Loop unrolling can be a good idea since cout is slow and hurts cache performance
-    vecWorld.iter<Vec3>([](Vec3& v) {
-        std::cout << v << "\n";
-        });
+    //// Loop unrolling can be a good idea since cout is slow and hurts cache performance
+    //vecWorld.iter<Vec3>([](Vec3& v) {
+    //    std::cout << v << "\n";
+    //    });
 
-    // This will print nothing since it got cleared
-    vecWorld.iter<int>([](int& v) {
-        std::cout << v << "\n";
-        });
+    //// This will print nothing since it got cleared
+    //vecWorld.iter<int>([](int& v) {
+    //    std::cout << v << "\n";
+    //    });
 
-    world.print(hp_p);
+    //world.print(hp_p);
 }
 
 int main() {
-    std::cout << "Proto benchmark:\n";
+    basicExamples();
+    //std::cout << "Proto benchmark:\n";
     linear_iteration();
     query_parallel_proto();
     multi_query_single_world();

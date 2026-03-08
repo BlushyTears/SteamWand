@@ -12,7 +12,7 @@
 struct Vec2 { float x, y; };
 struct Vec3 { float x, y, z; };
 
-using AtomTypes = std::tuple<int32_t, uint32_t, float, Vec2, Vec3, bool>;
+using AtomTypes = std::tuple<int32_t, uint32_t, float, Vec2, Vec3, bool, char>;
 
 inline std::ostream& operator<<(std::ostream& os, const Vec2& v) { return os << "Vec2( " << v.x << "," << v.y << " )"; }
 inline std::ostream& operator<<(std::ostream& os, const Vec3& v) { return os << "Vec3( " << v.x << "," << v.y << "," << v.z << " )"; }
@@ -89,10 +89,16 @@ struct TypedSlab {
     }
 
     template<typename Fn>
-    void iter(Fn&& fn) const noexcept {
-        for (uint32_t i = 0; i < cap; ++i)
-            if (tags[i] != EMPTY_TAG)
-                fn(values[i]);
+    void iter(Fn&& fn) noexcept {
+        const uint32_t total_cap = cap;
+        T* data = values.get();
+        const uint8_t* tag_ptr = tags.get();
+
+        for (uint32_t i = 0; i < total_cap; ++i) {
+            if (tag_ptr[i] != EMPTY_TAG) {
+                fn(data[i]);
+            }
+        }
     }
 
     void clear() noexcept {
@@ -105,7 +111,7 @@ struct TypedSlab {
         }
     }
 
-    // unsafe arena-like clea
+    // unsafe clear
     void clear_fast() noexcept {
         memset(tags.get(), EMPTY_TAG, cap);
         free_indices.resize(cap);
@@ -170,6 +176,20 @@ struct World {
     }
 
     template<typename T>
+    struct SlabView {
+        T* data;
+        size_t count;
+        T* begin() { return data; }
+        T* end() { return data + count; }
+    };
+
+    template<typename T>
+    SlabView<T> view() {
+        auto& slab = slabFor<T>();
+        return { slab.raw(), slab.allocated_count() };
+    }
+
+    template<typename T>
     auto& slabFor() const noexcept {
         return std::get<TypedSlab<T>>(*slabs);
     }
@@ -226,7 +246,7 @@ struct World {
     }
 
     template<typename T>
-    void clear() noexcept {
+    void clear_all() noexcept {
         const_cast<TypedSlab<T>&>(slabFor<T>()).clear();
     }
 
@@ -301,10 +321,18 @@ struct World {
     }
 
     template<typename... Ts, typename Fn>
-    void query_parallel(Fn&& fn) const noexcept {
-        size_t count = (std::min)({ slabFor<Ts>().allocated_count()... });
-        for (size_t i = 0; i < count; i++) {
-            fn(slabFor<Ts>().raw()[i]...);
+    void query_parallel(Fn&& fn) {
+        // 1. Resolve count once and store as a local constant
+        const size_t total = slabFor<std::tuple_element_t<0, std::tuple<Ts...>>>().allocated_count();
+        if (total == 0) 
+            return;
+
+        // 2. Resolve all pointers upfront to local variables
+        auto ptrs = std::make_tuple(slabFor<Ts>().raw()...);
+
+        // 3. Simple, bounded loop
+        for (size_t i = 0; i < total; ++i) {
+            fn(std::get<Ts*>(ptrs)[i]...);
         }
     }
 

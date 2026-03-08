@@ -10,39 +10,31 @@
 #define NOW() std::chrono::high_resolution_clock::now()
 #define MS(start, end) std::chrono::duration<double, std::milli>(end - start).count()
 
-static void print_stats(const char* name, std::vector<double>& times) {
-    std::sort(times.begin(), times.end());
-    double min = times.front();
-    double median = times[times.size() / 2];
-    double max = times.back();
-    std::cout << name << "ms  median=" << median << "ms\n";
+static void print_stats(const char* name, double total_time) {
+    std::cout << name << " Total (Setup + " << RUNS << " runs): " << total_time << "ms\n";
+    std::cout << name << " Avg/Run: " << (total_time / RUNS) << "ms\n";
+    std::cout << "--------------------------------------\n";
 }
 
-// ----------------------------------------------------------------
-// Prototype tests
-// ----------------------------------------------------------------
-
 void linear_iteration() {
+    auto start = NOW();
     World world(ITEMS);
 
     for (int i = 0; i < ITEMS; i++)
         world.create(float(i));
 
-    std::vector<double> times;
-
     for (int r = 0; r < RUNS; r++) {
-        auto start = NOW();
         world.iter<float>([](float& v) {
             v = (v * 2.0f) + 1.0f;
             });
-        auto end = NOW();
-        times.push_back(MS(start, end));
     }
 
-    print_stats("proto linear: ", times);
+    auto end = NOW();
+    print_stats("proto linear: ", MS(start, end));
 }
 
 void query_parallel_proto() {
+    auto start = NOW();
     World world(ITEMS * 2);
 
     for (int i = 0; i < ITEMS; i++) {
@@ -50,23 +42,20 @@ void query_parallel_proto() {
         world.create(float(i) * 0.5f);
     }
 
-    std::vector<double> times;
-
     for (int r = 0; r < RUNS; r++) {
-        auto start = NOW();
         world.query_parallel<Vec3, float>([](Vec3& pos, float& spd) {
             pos.x += spd;
             pos.y += spd;
             pos.z += spd;
             });
-        auto end = NOW();
-        times.push_back(MS(start, end));
     }
 
-    print_stats("proto query parallel: ", times);
+    auto end = NOW();
+    print_stats("proto query parallel: ", MS(start, end));
 }
 
 void multi_query_single_world() {
+    auto start = NOW();
     World world(ITEMS * 3);
 
     for (int i = 0; i < ITEMS; i++) {
@@ -80,24 +69,21 @@ void multi_query_single_world() {
     int* hp_raw = world.raw<int32_t>();
     size_t count = world.slabFor<Vec3>().allocated_count();
 
-    std::vector<double> times;
-
     for (int r = 0; r < RUNS; r++) {
-        auto start = NOW();
         for (size_t i = 0; i < count; i++) {
             pos_raw[i].x += spd_raw[i];
             pos_raw[i].y += spd_raw[i];
             pos_raw[i].z += spd_raw[i];
             hp_raw[i] -= 1;
         }
-        auto end = NOW();
-        times.push_back(MS(start, end));
     }
 
-    print_stats("proto multi parallel: ", times);
+    auto end = NOW();
+    print_stats("proto multi parallel: ", MS(start, end));
 }
 
 void backwards_query_proto() {
+    auto start = NOW();
     World world(ITEMS * 2);
     uint16_t entity_id = 0;
 
@@ -110,64 +96,36 @@ void backwards_query_proto() {
         entity_id++;
     }
 
-    std::vector<double> times;
-
     for (int r = 0; r < RUNS; r++) {
-        auto start = NOW();
         world.query_parallel<Vec3, float>([](Vec3& pos, float& spd) {
             pos.x += spd;
             pos.y += spd;
             pos.z += spd;
             });
-        auto end = NOW();
-        times.push_back(MS(start, end));
     }
 
-    print_stats("proto backwards query: ", times);
+    auto end = NOW();
+    print_stats("proto backwards query: ", MS(start, end));
 }
 
-// ----------------------------------------------------------------
-// Archetype ECS tests
-// ----------------------------------------------------------------
-
-struct ArchetypeECS {
-    std::vector<float> ps_px, ps_py, ps_pz, ps_speed;
-    std::vector<float> po_px, po_py, po_pz;
-
-    void insert_pos_speed(float px, float py, float pz, float spd) {
-        ps_px.push_back(px);
-        ps_py.push_back(py);
-        ps_pz.push_back(pz);
-        ps_speed.push_back(spd);
-    }
-
-    void insert_pos_only(float px, float py, float pz) {
-        po_px.push_back(px);
-        po_py.push_back(py);
-        po_pz.push_back(pz);
-    }
-};
-
 void archetype_linear() {
+    auto start = NOW();
     std::vector<float> data;
     data.reserve(ITEMS);
     for (int i = 0; i < ITEMS; i++)
         data.push_back(float(i));
 
-    std::vector<double> times;
-
     for (int r = 0; r < RUNS; r++) {
-        auto start = NOW();
         for (size_t i = 0; i < data.size(); i++)
             data[i] = (data[i] * 2.0f) + 1.0f;
-        auto end = NOW();
-        times.push_back(MS(start, end));
     }
 
-    print_stats("archetype linear: ", times);
+    auto end = NOW();
+    print_stats("archetype linear: ", MS(start, end));
 }
 
 void archetype_query() {
+    auto start = NOW();
     std::vector<float> px, py, pz, speed;
     px.reserve(ITEMS);
     py.reserve(ITEMS);
@@ -181,23 +139,20 @@ void archetype_query() {
         speed.push_back(float(i) * 0.5f);
     }
 
-    std::vector<double> times;
-
     for (int r = 0; r < RUNS; r++) {
-        auto start = NOW();
         for (size_t i = 0; i < px.size(); i++) {
             px[i] += speed[i];
             py[i] += speed[i];
             pz[i] += speed[i];
         }
-        auto end = NOW();
-        times.push_back(MS(start, end));
     }
 
-    print_stats("archetype query:      ", times);
+    auto end = NOW();
+    print_stats("archetype query: ", MS(start, end));
 }
 
 void archetype_multi() {
+    auto start = NOW();
     std::vector<Vec3> pos;
     std::vector<float> speed;
     std::vector<int> health;
@@ -212,24 +167,21 @@ void archetype_multi() {
         health.push_back(i);
     }
 
-    std::vector<double> times;
-
     for (int r = 0; r < RUNS; r++) {
-        auto start = NOW();
         for (int i = 0; i < ITEMS; i++) {
             pos[i].x += speed[i];
             pos[i].y += speed[i];
             pos[i].z += speed[i];
             health[i] -= 1;
         }
-        auto end = NOW();
-        times.push_back(MS(start, end));
     }
 
-    print_stats("archetype multi: ", times);
+    auto end = NOW();
+    print_stats("archetype multi: ", MS(start, end));
 }
 
 void backwards_query_archetype() {
+    auto start = NOW();
     std::vector<float> ps_px, ps_py, ps_pz, ps_speed;
     std::vector<float> po_px, po_py, po_pz;
 
@@ -255,65 +207,58 @@ void backwards_query_archetype() {
         }
     }
 
-    std::vector<double> times;
-
     for (int r = 0; r < RUNS; r++) {
-        auto start = NOW();
         for (size_t i = 0; i < ps_px.size(); i++) {
             ps_px[i] += ps_speed[i];
             ps_py[i] += ps_speed[i];
             ps_pz[i] += ps_speed[i];
         }
-        auto end = NOW();
-        times.push_back(MS(start, end));
     }
 
-    print_stats("archetype backwards query: ", times);
+    auto end = NOW();
+    print_stats("archetype backwards query: ", MS(start, end));
 }
 
-// Proto vs Archetype real life example 1v1 maxed out optimization
 struct ZombieWorld {
     World internal;
-
     ZombieWorld(size_t count) : internal(count * 3) {}
-
     void create_entity(int health, float damage, bool is_alive) {
         internal.create(health);
         internal.create(damage);
         internal.create(is_alive);
     }
-
     int* hp_raw() { return internal.raw<int>(); }
     float* dmg_raw() { return internal.raw<float>(); }
     size_t count() { return internal.slabFor<int>().allocated_count(); }
 };
 
 void zombie_update() {
+    auto start = NOW();
     ZombieWorld world(ITEMS);
 
     for (int i = 0; i < ITEMS; i++)
         world.create_entity(100, 10.0f, true);
 
-    int* hp_raw = world.hp_raw();
-    float* dmg_raw = world.dmg_raw();
-    size_t count = world.count();
-
-    std::vector<double> times;
+    auto hps = world.internal.view<int>();
+    auto dmgs = world.internal.view<float>();
+    size_t count = hps.count;
 
     for (int r = 0; r < RUNS; r++) {
-        auto start = NOW();
+        int* hp_ptr = hps.data;
+        float* dmg_ptr = dmgs.data;
+
         for (size_t i = 0; i < count; i++) {
-            hp_raw[i] -= 1;
-            dmg_raw[i] *= 0.99f;
+            hp_ptr[i] -= 1;
+            dmg_ptr[i] *= 0.99f;
         }
-        auto end = NOW();
-        times.push_back(MS(start, end));
     }
 
-    print_stats("proto zombie: ", times);
+    auto end = NOW();
+    print_stats("proto zombie optimized: ", MS(start, end));
 }
 
 void zombie_update_archetype() {
+    auto start = NOW();
     std::vector<int> health;
     std::vector<float> damage;
     std::vector<uint8_t> alive;
@@ -328,17 +273,13 @@ void zombie_update_archetype() {
         alive.push_back(1);
     }
 
-    std::vector<double> times;
-
     for (int r = 0; r < RUNS; r++) {
-        auto start = NOW();
         for (int i = 0; i < ITEMS; i++) {
             health[i] -= 1;
             damage[i] *= 0.99f;
         }
-        auto end = NOW();
-        times.push_back(MS(start, end));
     }
 
-    print_stats("archetype zombie: ", times);
+    auto end = NOW();
+    print_stats("archetype zombie: ", MS(start, end));
 }
