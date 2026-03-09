@@ -23,11 +23,11 @@ void linear_iteration_v3() {
     World world(ITEMS);
 
     for (int i = 0; i < ITEMS; i++)
-        world.create<float>(float(i));
+        world.create_atom<float>(float(i));
 
     for (int r = 0; r < RUNS; r++) {
-        float* data = world.raw<float>();
-        size_t count = world.count<float>();
+        float* data = world.get_array<float>();
+        size_t count = world.size<float>();
         for (size_t i = 0; i < count; i++)
             data[i] = data[i] * 2.0f + 1.0f;
     }
@@ -40,15 +40,15 @@ void query_parallel_v3() {
     World world(ITEMS * 2);
 
     for (int i = 0; i < ITEMS; i++) {
-        world.create<Vec3>({ float(i), float(i * 2), float(i * 3) });
-        world.create<float>(float(i) * 0.5f);
+        world.create_atom<Vec3>({ float(i), float(i * 2), float(i * 3) });
+        world.create_atom<float>(float(i) * 0.5f);
     }
 
     for (int r = 0; r < RUNS; r++) {
-        Vec3* pos = world.raw<Vec3>();
-        float* spd = world.raw<float>();
-        size_t pos_count = world.count<Vec3>();
-        size_t spd_count = world.count<float>();
+        Vec3* pos = world.get_array<Vec3>();
+        float* spd = world.get_array<float>();
+        size_t pos_count = world.size<Vec3>();
+        size_t spd_count = world.size<float>();
         size_t n = std::min(pos_count, spd_count);
         for (size_t i = 0; i < n; i++) {
             pos[i].x += spd[i];
@@ -65,15 +65,15 @@ void multi_component_v3() {
     World world(ITEMS * 3);
 
     for (int i = 0; i < ITEMS; i++) {
-        world.create<Vec3>({ float(i), float(i * 2), float(i * 3) });
-        world.create<float>(float(i) * 0.5f);
-        world.create<int32_t>(i);
+        world.create_atom<Vec3>({ float(i), float(i * 2), float(i * 3) });
+        world.create_atom<float>(float(i) * 0.5f);
+        world.create_atom<int32_t>(i);
     }
 
-    Vec3* pos = world.raw<Vec3>();
-    float* spd = world.raw<float>();
-    int32_t* hp = world.raw<int32_t>();
-    size_t count = world.count<Vec3>();
+    Vec3* pos = world.get_array<Vec3>();
+    float* spd = world.get_array<float>();
+    int32_t* hp = world.get_array<int32_t>();
+    size_t count = world.size<Vec3>();
 
     for (int r = 0; r < RUNS; r++) {
         for (size_t i = 0; i < count; i++) {
@@ -93,18 +93,21 @@ void backwards_query_v3() {
     uint16_t eid = 0;
 
     for (int i = 0; i < ITEMS; i++) {
-        world.create<Vec3>({ float(i), float(i * 2), float(i * 3) }, eid);
-        if (i % 2 == 0) world.create<float>(float(i) * 0.5f, eid);
-        else world.create<bool>(true, eid);
+        world.create_atom<Vec3>({ float(i), float(i * 2), float(i * 3) }, eid);
+        if 
+            (i % 2 == 0) world.create_atom<float>(float(i) * 0.5f, eid);
+        else 
+            world.create_atom<bool>(true, eid);
         eid++;
     }
 
     for (int r = 0; r < RUNS; r++) {
-        Vec3* pos = world.raw<Vec3>();
-        float* spd = world.raw<float>();
-        size_t pos_count = world.count<Vec3>();
-        size_t spd_count = world.count<float>();
+        Vec3* pos = world.get_array<Vec3>();
+        float* spd = world.get_array<float>();
+        size_t pos_count = world.size<Vec3>();
+        size_t spd_count = world.size<float>();
         size_t n = std::min(pos_count, spd_count);
+
         for (size_t i = 0; i < n; i++) {
             pos[i].x += spd[i];
             pos[i].y += spd[i];
@@ -120,14 +123,14 @@ void zombie_v3() {
     World zombieWorld(ITEMS);
 
     for (int i = 0; i < ITEMS; i++) {
-        zombieWorld.create<int32_t>(100);
-        zombieWorld.create<float>(10.0f);
-        zombieWorld.create<bool>(true);
+        zombieWorld.create_atom<int32_t>(100);
+        zombieWorld.create_atom<float>(10.0f);
+        zombieWorld.create_atom<bool>(true);
     }
 
-    int32_t* hp = zombieWorld.raw<int32_t>();
-    float* dmg = zombieWorld.raw<float>();
-    size_t count = zombieWorld.count<float>();
+    int32_t* hp = zombieWorld.get_array<int32_t>();
+    float* dmg = zombieWorld.get_array<float>();
+    size_t count = zombieWorld.size<float>();
 
     for (int r = 0; r < RUNS; r++) {
         for (size_t i = 0; i < count; i++) {

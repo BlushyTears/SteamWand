@@ -9,24 +9,23 @@
 #include "Benchmarks.h"
 
 #define ITEMS 33000000
-#define RUNS  100
+#define RUNS 100
 #define NOW() std::chrono::high_resolution_clock::now()
 #define MS(start, end) std::chrono::duration<double, std::milli>(end - start).count()
-
 
 void basicExamples() {
     const size_t COUNT = 1000000;
     World world(COUNT);
 
     // Basic create & free
-    Atom atom = world.create<int>(5);
+    Atom atom = world.create_atom<int>(5);
     world.free<int>(atom);
 
     // Entity with multiple components
-    Atom hp_p = world.create<int>(100);
-    Atom spd_p = world.create<float>(3.5f);
-    Atom wealth_p = world.create<int>(3);
-    Atom target_p = world.create<int>(5);
+    Atom hp_p = world.create_atom<int>(100);
+    Atom spd_p = world.create_atom<float>(3.5f);
+    Atom wealth_p = world.create_atom<int>(3);
+    Atom target_p = world.create_atom<int>(5);
 
     std::vector<Atom> zombie = { hp_p, spd_p, wealth_p, target_p };
     std::cout << "Normal zombie wealth: " << world.get<int>(zombie[2]) << "\n";
@@ -42,13 +41,13 @@ void basicExamples() {
     World vecWorld(COUNT);
 
     for (int i = 0; i < 4; i++) {
-        vecWorld.create<Vec3>(Vec3{ float(1 * i), float(2 * i), float(3 * i) });
-        vecWorld.create<int>(5);
+        vecWorld.create_atom<Vec3>(Vec3{ float(1 * i), float(2 * i), float(3 * i) });
+        vecWorld.create_atom<int>(5);
     }
 
-    // Iterate and modify Vec3 using raw pointer + count
-    Vec3* vecs = vecWorld.raw<Vec3>();
-    size_t vec_count = vecWorld.count<Vec3>();
+    // Iterate and modify Vec3 using get_array pointer + count
+    Vec3* vecs = vecWorld.get_array<Vec3>();
+    size_t vec_count = vecWorld.size<Vec3>();
     for (size_t i = 0; i < vec_count; i++) {
         vecs[i].x += 1.0f;
         vecs[i].y += 2.0f;
@@ -57,19 +56,19 @@ void basicExamples() {
 
     world.free_entity(super_zombie);
 
-    // Clear Vec3 here to demonstrate the potential
-    vecWorld.clear<Vec3>();
+    // clear_all Vec3's
+    vecWorld.clear_all<Vec3>();
 
-    // Print remaining Vec3 (should be nothing) - using raw pointer + count
-    Vec3* remaining_vecs = vecWorld.raw<Vec3>();
-    size_t remaining_count = vecWorld.count<Vec3>();
+    // Print remaining Vec3 (should be nothing) - using get_array pointer + count
+    Vec3* remaining_vecs = vecWorld.get_array<Vec3>();
+    size_t remaining_count = vecWorld.size<Vec3>();
     for (size_t i = 0; i < remaining_count; i++) {
         std::cout << remaining_vecs[i] << "\n";
     }
 
-    // This will print ints (still exist) - using raw pointer + count
-    int* ints = vecWorld.raw<int>();
-    size_t int_count = vecWorld.count<int>();
+    // This will print ints (still exist) - using get_array pointer + count
+    int* ints = vecWorld.get_array<int>();
+    size_t int_count = vecWorld.size<int>();
     for (size_t i = 0; i < int_count; i++) {
         std::cout << ints[i] << "\n";
     }
@@ -80,7 +79,8 @@ void basicExamples() {
 
 int main() {
     //printf("Running benchmarks with %d items, %d runs each\n", ITEMS, RUNS);
-
+    basicExamples();
+    /*
     printf("\n=== Steamwand benchmarks ===\n");
     linear_iteration_v3();
     query_parallel_v3();
@@ -93,7 +93,7 @@ int main() {
     archetype_multi();
     archetype_query_parallel();
     archetype_backwards_query();
-    archetype_zombie();
+    archetype_zombie();*/
 
     return 0;
 }
