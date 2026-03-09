@@ -9,8 +9,6 @@
 - **The structure is enforced by the end-user:** You can store atoms like vectors, hashmaps, objects, custom data structures, nothing at all or however you like for keeping things organized in your game.
 ---
 
-------------------------------------------------------------------------
-
 # Creating Atoms
 
 Atoms are created through the `World` and returned as lightweight handles.
@@ -81,7 +79,7 @@ When you need ECS-inspired access, you can bypass get() entirely and iterate the
 
 ```cpp
 Vec3* positions = world.get_array<Vec3>();
-size_t count    = world.size<Vec3>();
+size_t count = world.size<Vec3>();
 
 for (size_t i = 0; i < count; ++i) {
     positions[i].x += 1.0f;
