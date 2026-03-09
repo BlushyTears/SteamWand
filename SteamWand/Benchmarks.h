@@ -11,7 +11,3 @@ void archetype_multi();
 void archetype_query_parallel();
 void archetype_backwards_query();
 void archetype_zombie();
-
-
-void multi_world_query();
-void ecs_style_filter();

@@ -7,10 +7,9 @@
 #include <iostream>
 #include <algorithm>
 #include <type_traits>
-#include <malloc.h>
 
 // =============================================================
-// Basic Types
+// Custom types defined here alongside how you want them printed
 // =============================================================
 
 struct Vec2 { float x, y; };
@@ -25,10 +24,8 @@ inline std::ostream& operator<<(std::ostream& os, const Vec3& v) {
 }
 
 // =============================================================
-// Type System - Single source of truth using X macro
-// To add a new type: Add one line to ATOM_TYPES.
+// To register a new type: Add one line to ATOM_TYPES. 
 // =============================================================
-
 #define ATOM_TYPES(X) \
     X(1, int32_t, Int32) \
     X(2, uint32_t, UInt32) \
@@ -64,20 +61,22 @@ ATOM_TYPES(DEFINE_TYPE_INFO)
 
 struct Atom {
     uint32_t index;
-    uint8_t  generation;
-    uint8_t  type_id;
     uint16_t entity_id;
+    uint8_t generation;
+    uint8_t type_id;
 
-    bool valid() const { return type_id != EMPTY_TYPE; }
-
-    bool operator==(const Atom& other) const {
-        return index == other.index &&
-            generation == other.generation &&
-            type_id == other.type_id &&
-            entity_id == other.entity_id;
+    bool valid() const noexcept {
+        return type_id != EMPTY_TYPE;
     }
 
-    bool operator!=(const Atom& other) const { 
+    bool operator==(const Atom& other) const noexcept {
+        return index == other.index
+            && generation == other.generation
+            && type_id == other.type_id
+            && entity_id == other.entity_id;
+    }
+
+    bool operator!=(const Atom& other) const noexcept {
         return !(*this == other);
     }
 };
@@ -85,28 +84,37 @@ struct Atom {
 template<typename T>
 class Slab {
 public:
-    Slab(uint32_t capacity)
+    Slab(uint32_t capacity) noexcept
         : cap(capacity)
         , count(0)
-        , type_id(TypeInfo<T>::type_id) {
+        , type_id(TypeInfo<T>::type_id)
+        , free_head(0) {
 
-        data = static_cast<T*>(_aligned_malloc(capacity * sizeof(T), 64));
-        assert(data && "Aligned allocation failed");
+        uint8_t* metadata = static_cast<uint8_t*>(_aligned_malloc(
+            capacity * (sizeof(T) + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint32_t)) 64));
 
-        generations = std::make_unique<uint8_t[]>(capacity);
-        entity_ids = std::make_unique<uint16_t[]>(capacity);
+        data = reinterpret_cast<T*>(metadata);
+        generations = reinterpret_cast<uint8_t*>(metadata + capacity * sizeof(T));
+        entity_ids = reinterpret_cast<uint16_t*>(generations + capacity);
+        next_free = reinterpret_cast<uint32_t*>(entity_ids + capacity);
 
-        free_list.reserve(capacity);
+        for (uint32_t i = 0; i < capacity - 1; i++) {
+            next_free[i] = i + 1;
+        }
 
-        for (uint32_t i = 0; i < capacity; i++) {
-            generations[i] = 0;
-            entity_ids[i] = 0;
-            free_list.push_back(i);
+        next_free[capacity - 1] = (uint32_t)UINT32_MAX;
+
+        if (generations) {
+            memset(generations, 0, capacity * sizeof(uint8_t));
+        }
+        if (entity_ids) {
+            memset(entity_ids, 0, capacity * sizeof(uint16_t));
         }
     }
 
-    ~Slab() {
-        if (data) _aligned_free(data);
+    ~Slab() noexcept {
+        if (data)
+            _aligned_free(data);
     }
 
     Slab(const Slab&) = delete;
@@ -114,185 +122,169 @@ public:
     Slab& operator=(const Slab&) = delete;
     Slab& operator=(Slab&&) = delete;
 
-    Atom create(const T& value, uint16_t entity_id = 0) {
-        assert(!free_list.empty() && "Slab at capacity");
+    Atom create(const T& value, uint16_t entity_id = 0) noexcept {
+        assert(free_head != UINT32_MAX && "Slab at capacity");
 
-        uint32_t idx = free_list.back();
-        free_list.pop_back();
+        uint32_t idx = free_head;
+        free_head = next_free[idx];
 
-        data[idx] = value;
+        new (&data[idx]) T(value);
         generations[idx] += 1;
         entity_ids[idx] = entity_id;
         count += 1;
 
-        return Atom{ idx, generations[idx], type_id, entity_id };
+        return Atom{ idx, entity_id, generations[idx], type_id };
     }
 
-    void free(Atom id) {
+    void free(Atom id) noexcept {
         assert(id.index < cap);
         assert(generations[id.index] != 0);
         assert(id.generation == generations[id.index]);
         assert(id.type_id == type_id);
 
-        generations[id.index] = 0;
-        free_list.push_back(id.index);
+        data[id.index].~T();
+        next_free[id.index] = free_head;
+        free_head = id.index;
         count -= 1;
     }
 
-    bool valid(Atom id) const {
-        return id.index < cap && id.type_id == type_id
-            && generations[id.index] != 0 
+    bool valid(Atom id) const noexcept {
+        return id.index < cap
+            && id.type_id == type_id
+            && generations[id.index] != 0
             && id.generation == generations[id.index];
     }
 
-    T& get(Atom id) {
+    T& get(Atom id) noexcept {
         assert(valid(id) && "Accessing invalid Atom");
         return data[id.index];
     }
 
-    const T& get(Atom id) const {
+    const T& get(Atom id) const noexcept {
         assert(valid(id) && "Accessing invalid Atom");
         return data[id.index];
     }
 
-    void clear() {
+    void clear() noexcept {
         for (uint32_t i = 0; i < cap; ++i) {
             if (generations[i] != 0) {
+                data[i].~T();
+                next_free[i] = free_head;
+                free_head = i;
                 generations[i] = 0;
-                free_list.push_back(i);
             }
         }
         count = 0;
     }
 
-    T* raw() { 
+    T* raw() noexcept {
         return data;
     }
-    const T* raw() const { 
+    const T* raw() const noexcept {
         return data;
     }
 
-    size_t size() const { 
+    size_t size() const noexcept {
         return count;
     }
-    uint32_t capacity() const { 
+    uint32_t capacity() const noexcept {
         return cap;
     }
 
 private:
-    uint32_t cap;
     size_t count;
+    T* data;
+    uint8_t* generations;
+    uint16_t* entity_ids;
+    uint32_t* next_free;
+    uint32_t cap;
+    uint32_t free_head;
     uint8_t type_id;
-
-    T* data = nullptr;
-
-    std::unique_ptr<uint8_t[]> generations;
-    std::unique_ptr<uint16_t[]> entity_ids;
-    std::vector<uint32_t> free_list;
 };
-
-// =============================================================
-// World - Container for all slabs optimized for cache locality
-// =============================================================
 
 class World {
 public:
-    World(uint32_t capacity = 1024) {
+    World(uint32_t capacity = 1024) noexcept {
 #define X(tid, ctype, name) \
-        std::get<tid - 1>(slabs) = std::make_unique<Slab<ctype>>(capacity);
+            std::get<tid - 1>(slabs) = std::make_unique<Slab<ctype>>(capacity);
         ATOM_TYPES(X)
 #undef X
     }
 
     template<typename T>
-    Atom create(const T& value, uint16_t entity_id = 0) {
+    Atom create(const T& value, uint16_t entity_id = 0) noexcept {
         return slab<T>().create(value, entity_id);
     }
 
     template<typename T>
-    T& get(Atom id) {
+    T& get(Atom id) noexcept {
         return slab<T>().get(id);
     }
 
     template<typename T>
-    const T& get(Atom id) const {
+    const T& get(Atom id) const noexcept {
         return slab<T>().get(id);
     }
 
     template<typename T>
-    void free(Atom id) {
-        if (valid<T>(id)) slab<T>().free(id);
+    void free(Atom id) noexcept {
+        if (valid<T>(id))
+            slab<T>().free(id);
     }
 
-    void free(Atom id) {
-        if (!id.valid()) return;
+    void free(Atom id) noexcept {
+        if (!id.valid())
+            return;
         switch (id.type_id) {
 #define X(tid, ctype, name) \
-            case tid: if (slab_ptr<ctype>()) slab_ptr<ctype>()->free(id); break;
+            case tid: \
+                if (slab_ptr<ctype>()) { \
+                    slab_ptr<ctype>()->free(id); \
+                } \
+            break;
+
             ATOM_TYPES(X)
 #undef X
-        default: break;
+        default:
+            break;
         }
     }
 
     template<typename T>
-    bool valid(Atom id) const {
+    bool valid(Atom id) const noexcept {
         return slab<T>().valid(id);
     }
 
-    bool valid(Atom id) const {
-        if (id.type_id == 0 || id.type_id > ATOM_TYPE_MAX_ID) return false;
+    bool valid(Atom id) const noexcept {
+        if (id.type_id == 0 || id.type_id > ATOM_TYPE_MAX_ID)
+            return false;
+
         switch (id.type_id) {
 #define X(tid, ctype, name) \
-            case tid: return slab_ptr<ctype>() && slab_ptr<ctype>()->valid(id);
+            case tid: \
+                return slab_ptr<ctype>() && slab_ptr<ctype>()->valid(id);
+
             ATOM_TYPES(X)
-#undef X
-        default: return false;
+#undef VALID_CASE
+
+        default:
+            return false;
         }
     }
 
     template<typename T>
-    T* raw() { 
+    T* raw() noexcept {
         return slab<T>().raw();
     }
 
     template<typename T>
-    const T* raw() const { 
+    const T* raw() const noexcept {
         return slab<T>().raw();
     }
 
     template<typename T>
-    size_t count() const {
+    size_t count() const noexcept {
         return slab<T>().size();
-    }
-
-    template<typename T>
-    struct View {
-        T* data;
-        size_t count;
-
-        T* begin() { 
-            return data;
-        }
-        T* end() { 
-            return data + count;
-        }
-        const T* begin() const { 
-            return data;
-        }
-        const T* end() const { 
-            return data + count;
-        }
-    };
-
-    template<typename T>
-    View<T> view() { 
-        return { raw<T>(), count<T>() };
-    }
-
-    template<typename T>
-    View<const T> view() const { 
-        return { raw<T>(), count<T>() };
     }
 
     std::vector<Atom> clone_entity(const std::vector<Atom>& entity) {
@@ -305,36 +297,38 @@ public:
                 result.push_back(create<T>(v));
                 });
         }
-
         return result;
     }
 
-    void free_entity(const std::vector<Atom>& entity) {
-        for (Atom id : entity) free(id);
+    void free_entity(const std::vector<Atom>& entity) noexcept {
+        for (Atom id : entity)
+            free(id);
     }
 
-    uint16_t entity_id(Atom id) const { 
+    uint16_t entity_id(Atom id) const noexcept {
         return id.entity_id;
     }
 
     void print(Atom id) {
-        if (!valid(id)) 
+        if (!valid(id))
             return;
-        dispatch(id, [](auto& v) { 
+        dispatch(id, [](auto& v) {
             std::cout << v << "\n";
             });
     }
 
     template<typename T>
-    void clear() { slab<T>().clear(); }
+    void clear() noexcept {
+        slab<T>().clear();
+    }
 
-    void clear_all() {
+    void clear_all() noexcept {
 #define X(tid, ctype, name) if (slab_ptr<ctype>()) slab_ptr<ctype>()->clear();
         ATOM_TYPES(X)
 #undef X
     }
 
-    size_t total_atoms() const {
+    size_t total_atoms() const noexcept {
         size_t total = 0;
 #define X(tid, ctype, name) if (slab_ptr<ctype>()) total += slab_ptr<ctype>()->size();
         ATOM_TYPES(X)
@@ -343,17 +337,14 @@ public:
     }
 
     template<typename Fn>
-    void dispatch(Atom id, Fn&& fn)
-    {
-        if (!valid(id)) 
+    void dispatch(Atom id, Fn&& fn) {
+        if (!valid(id))
             return;
-        switch (id.type_id)
-        {
+        switch (id.type_id) {
 #define X(tid, ctype, name) \
-            case tid: \
-                fn(slab_ptr<ctype>()->get(id)); \
-                break;
-
+                case tid: \
+                    fn(slab_ptr<ctype>()->get(id)); \
+                    break;
             ATOM_TYPES(X)
 #undef X
         default:
@@ -362,17 +353,14 @@ public:
     }
 
     template<typename Fn>
-    void dispatch(Atom id, Fn&& fn) const
-    {
-        if (!valid(id)) 
+    void dispatch(Atom id, Fn&& fn) const {
+        if (!valid(id))
             return;
-        switch (id.type_id)
-        {
+        switch (id.type_id) {
 #define X(tid, ctype, name) \
-            case tid: \
-                fn(slab_ptr<ctype>()->get(id)); \
-                break;
-
+                case tid: \
+                    fn(slab_ptr<ctype>()->get(id)); \
+                    break;
             ATOM_TYPES(X)
 #undef X
         default:
@@ -381,30 +369,30 @@ public:
     }
 
 private:
-
     std::tuple<
 #define X(tid, ctype, name) std::unique_ptr<Slab<ctype>>,
         ATOM_TYPES(X)
 #undef X
+
         std::monostate> slabs;
 
     template<typename T>
-    Slab<T>& slab() {
+    Slab<T>& slab() noexcept {
         return *std::get<TypeInfo<T>::type_id - 1>(slabs);
     }
 
     template<typename T>
-    const Slab<T>& slab() const {
+    const Slab<T>& slab() const noexcept {
         return *std::get<TypeInfo<T>::type_id - 1>(slabs);
     }
 
     template<typename T>
-    Slab<T>* slab_ptr() {
+    Slab<T>* slab_ptr() noexcept {
         return std::get<TypeInfo<T>::type_id - 1>(slabs).get();
     }
 
     template<typename T>
-    const Slab<T>* slab_ptr() const {
+    const Slab<T>* slab_ptr() const noexcept {
         return std::get<TypeInfo<T>::type_id - 1>(slabs).get();
     }
 };

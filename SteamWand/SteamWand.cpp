@@ -46,11 +46,13 @@ void basicExamples() {
         vecWorld.create<int>(5);
     }
 
-    // Iterate and modify Vec3 using view
-    for (auto& v : vecWorld.view<Vec3>()) {
-        v.x += 1.0f;
-        v.y += 2.0f;
-        v.z += 3.0f;
+    // Iterate and modify Vec3 using raw pointer + count
+    Vec3* vecs = vecWorld.raw<Vec3>();
+    size_t vec_count = vecWorld.count<Vec3>();
+    for (size_t i = 0; i < vec_count; i++) {
+        vecs[i].x += 1.0f;
+        vecs[i].y += 2.0f;
+        vecs[i].z += 3.0f;
     }
 
     world.free_entity(super_zombie);
@@ -58,18 +60,22 @@ void basicExamples() {
     // Clear Vec3 here to demonstrate the potential
     vecWorld.clear<Vec3>();
 
-    // Print remaining Vec3 (should be nothing)
-    for (const auto& v : vecWorld.view<Vec3>()) {
-        std::cout << v << "\n";
+    // Print remaining Vec3 (should be nothing) - using raw pointer + count
+    Vec3* remaining_vecs = vecWorld.raw<Vec3>();
+    size_t remaining_count = vecWorld.count<Vec3>();
+    for (size_t i = 0; i < remaining_count; i++) {
+        std::cout << remaining_vecs[i] << "\n";
     }
 
-    // This will print ints (still exist)
-    for (const auto& v : vecWorld.view<int>()) {
-        std::cout << v << "\n";
+    // This will print ints (still exist) - using raw pointer + count
+    int* ints = vecWorld.raw<int>();
+    size_t int_count = vecWorld.count<int>();
+    for (size_t i = 0; i < int_count; i++) {
+        std::cout << ints[i] << "\n";
     }
 
     // Print using runtime dispatch
-    world.print(hp_p);
+    //world.print(hp_p);
 }
 
 int main() {
