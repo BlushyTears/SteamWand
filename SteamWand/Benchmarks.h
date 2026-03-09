@@ -1,12 +1,17 @@
 #pragma once
+#include "Dcs.h"
 
-void linear_iteration();
-void query_parallel_proto();
-void multi_query_single_world();
-void backwards_query_proto();
+void linear_iteration_v3();
+void query_parallel_v3();
+void multi_component_v3();
+void backwards_query_v3();
+void zombie_v3();
 void archetype_linear();
-void archetype_query();
 void archetype_multi();
-void backwards_query_archetype();
-void zombie_update();
-void zombie_update_archetype();
+void archetype_query_parallel();
+void archetype_backwards_query();
+void archetype_zombie();
+
+
+void multi_world_query();
+void ecs_style_filter();

@@ -1,130 +1,173 @@
-#include "Dcs.h"
-#include <iostream>
-#include <chrono>
+#include <cstdio>
+#include <optional>
+#include <tuple>
 #include <vector>
+#include <cstdint>
+#include <chrono>
 #include <algorithm>
-#include <random>
+#include "Dcs.h"
 
 #define ITEMS 33000000
-#define RUNS  100
+#define RUNS 100
 #define NOW() std::chrono::high_resolution_clock::now()
 #define MS(start, end) std::chrono::duration<double, std::milli>(end - start).count()
 
 static void print_stats(const char* name, double total_time) {
-    std::cout << name << " Total (Setup + " << RUNS << " runs): " << total_time << "ms\n";
-    std::cout << name << " Avg/Run: " << (total_time / RUNS) << "ms\n";
-    std::cout << "--------------------------------------\n";
+    printf("%s Total (Setup + %d runs): %.2fms\n", name, RUNS, total_time);
+    printf("%s Avg/Run: %.2fms\n", name, total_time / RUNS);
+    printf("--------------------------------------\n");
 }
 
-void linear_iteration() {
+struct ZombieWorld {
+    World internal;
+    std::vector<std::tuple<Atom, Atom, Atom>> entities;
+
+    ZombieWorld(size_t count) : internal((uint32_t)(count * 3)) {
+        entities.reserve(count);
+    }
+
+    void create_entity(int health, float damage, bool is_alive) {
+        Atom h = internal.create<int32_t>(health);
+        Atom d = internal.create<float>(damage);
+        Atom a = internal.create<bool>(is_alive);
+        entities.emplace_back(h, d, a);
+    }
+
+    int32_t* hp_raw() { return internal.raw<int32_t>(); }
+    float* dmg_raw() { return internal.raw<float>(); }
+    size_t count() { return internal.count<int32_t>(); }
+};
+
+void linear_iteration_v3() {
     auto start = NOW();
     World world(ITEMS);
 
     for (int i = 0; i < ITEMS; i++)
-        world.create(float(i));
+        world.create<float>(float(i));
 
     for (int r = 0; r < RUNS; r++) {
-        world.iter<float>([](float& v) {
-            v = (v * 2.0f) + 1.0f;
-            });
+        auto view = world.view<float>();
+        for (size_t i = 0; i < view.count; i++)
+            view.data[i] = view.data[i] * 2.0f + 1.0f;
     }
 
-    auto end = NOW();
-    print_stats("proto linear: ", MS(start, end));
+    print_stats("v3 linear: ", MS(start, NOW()));
 }
 
-void query_parallel_proto() {
+void query_parallel_v3() {
     auto start = NOW();
     World world(ITEMS * 2);
 
     for (int i = 0; i < ITEMS; i++) {
-        world.create(Vec3{ float(i), float(i * 2), float(i * 3) });
-        world.create(float(i) * 0.5f);
+        world.create<Vec3>({ float(i), float(i * 2), float(i * 3) });
+        world.create<float>(float(i) * 0.5f);
     }
 
     for (int r = 0; r < RUNS; r++) {
-        world.query_parallel<Vec3, float>([](Vec3& pos, float& spd) {
-            pos.x += spd;
-            pos.y += spd;
-            pos.z += spd;
-            });
+        auto pos = world.view<Vec3>();
+        auto spd = world.view<float>();
+        size_t n = std::min(pos.count, spd.count);
+        for (size_t i = 0; i < n; i++) {
+            pos.data[i].x += spd.data[i];
+            pos.data[i].y += spd.data[i];
+            pos.data[i].z += spd.data[i];
+        }
     }
 
-    auto end = NOW();
-    print_stats("proto query parallel: ", MS(start, end));
+    print_stats("v3 query parallel: ", MS(start, NOW()));
 }
 
-void multi_query_single_world() {
+void multi_component_v3() {
     auto start = NOW();
     World world(ITEMS * 3);
 
     for (int i = 0; i < ITEMS; i++) {
-        world.create(Vec3{ float(i), float(i * 2), float(i * 3) });
-        world.create(float(i) * 0.5f);
-        world.create(i);
+        world.create<Vec3>({ float(i), float(i * 2), float(i * 3) });
+        world.create<float>(float(i) * 0.5f);
+        world.create<int32_t>(i);
     }
 
-    Vec3* pos_raw = world.raw<Vec3>();
-    float* spd_raw = world.raw<float>();
-    int* hp_raw = world.raw<int32_t>();
-    size_t count = world.slabFor<Vec3>().allocated_count();
+    Vec3* pos = world.raw<Vec3>();
+    float* spd = world.raw<float>();
+    int32_t* hp = world.raw<int32_t>();
+    size_t count = world.count<Vec3>();
 
     for (int r = 0; r < RUNS; r++) {
         for (size_t i = 0; i < count; i++) {
-            pos_raw[i].x += spd_raw[i];
-            pos_raw[i].y += spd_raw[i];
-            pos_raw[i].z += spd_raw[i];
-            hp_raw[i] -= 1;
+            pos[i].x += spd[i];
+            pos[i].y += spd[i];
+            pos[i].z += spd[i];
+            hp[i]--;
         }
     }
 
-    auto end = NOW();
-    print_stats("proto multi parallel: ", MS(start, end));
+    print_stats("v3 multi: ", MS(start, NOW()));
 }
 
-void backwards_query_proto() {
+void backwards_query_v3() {
     auto start = NOW();
     World world(ITEMS * 2);
-    uint16_t entity_id = 0;
+    uint16_t eid = 0;
 
     for (int i = 0; i < ITEMS; i++) {
-        world.create(Vec3{ float(i), float(i * 2), float(i * 3) }, entity_id);
-        if (i % 2 == 0)
-            world.create(float(i) * 0.5f, entity_id);
-        else
-            world.create(bool(true), entity_id);
-        entity_id++;
+        world.create<Vec3>({ float(i), float(i * 2), float(i * 3) }, eid);
+        if (i % 2 == 0) world.create<float>(float(i) * 0.5f, eid);
+        else world.create<bool>(true, eid);
+        eid++;
     }
 
     for (int r = 0; r < RUNS; r++) {
-        world.query_parallel<Vec3, float>([](Vec3& pos, float& spd) {
-            pos.x += spd;
-            pos.y += spd;
-            pos.z += spd;
-            });
+        auto pos = world.view<Vec3>();
+        auto spd = world.view<float>();
+        size_t n = std::min(pos.count, spd.count);
+        for (size_t i = 0; i < n; i++) {
+            pos.data[i].x += spd.data[i];
+            pos.data[i].y += spd.data[i];
+            pos.data[i].z += spd.data[i];
+        }
     }
 
-    auto end = NOW();
-    print_stats("proto backwards query: ", MS(start, end));
+    print_stats("v3 backwards: ", MS(start, NOW()));
+}
+
+void zombie_v3() {
+    auto start = NOW();
+    ZombieWorld world(ITEMS);
+
+    for (int i = 0; i < ITEMS; i++)
+        world.create_entity(100, 10.0f, true);
+
+    int32_t* hp = world.hp_raw();
+    float* dmg = world.dmg_raw();
+    size_t count = world.count();
+
+    for (int r = 0; r < RUNS; r++) {
+        for (size_t i = 0; i < count; i++) {
+            hp[i]--;
+            dmg[i] *= 0.99f;
+        }
+    }
+
+    print_stats("v3 zombie: ", MS(start, NOW()));
 }
 
 void archetype_linear() {
     auto start = NOW();
     std::vector<float> data;
     data.reserve(ITEMS);
+
     for (int i = 0; i < ITEMS; i++)
         data.push_back(float(i));
 
     for (int r = 0; r < RUNS; r++) {
         for (size_t i = 0; i < data.size(); i++)
-            data[i] = (data[i] * 2.0f) + 1.0f;
+            data[i] = data[i] * 2.0f + 1.0f;
     }
 
-    auto end = NOW();
-    print_stats("archetype linear: ", MS(start, end));
+    print_stats("archetype linear: ", MS(start, NOW()));
 }
 
-void archetype_query() {
+void archetype_query_parallel() {
     auto start = NOW();
     std::vector<float> px, py, pz, speed;
     px.reserve(ITEMS);
@@ -147,8 +190,7 @@ void archetype_query() {
         }
     }
 
-    auto end = NOW();
-    print_stats("archetype query: ", MS(start, end));
+    print_stats("archetype query parallel: ", MS(start, NOW()));
 }
 
 void archetype_multi() {
@@ -172,15 +214,14 @@ void archetype_multi() {
             pos[i].x += speed[i];
             pos[i].y += speed[i];
             pos[i].z += speed[i];
-            health[i] -= 1;
+            health[i]--;
         }
     }
 
-    auto end = NOW();
-    print_stats("archetype multi: ", MS(start, end));
+    print_stats("archetype multi: ", MS(start, NOW()));
 }
 
-void backwards_query_archetype() {
+void archetype_backwards_query() {
     auto start = NOW();
     std::vector<float> ps_px, ps_py, ps_pz, ps_speed;
     std::vector<float> po_px, po_py, po_pz;
@@ -215,49 +256,10 @@ void backwards_query_archetype() {
         }
     }
 
-    auto end = NOW();
-    print_stats("archetype backwards query: ", MS(start, end));
+    print_stats("archetype backwards: ", MS(start, NOW()));
 }
 
-struct ZombieWorld {
-    World internal;
-    ZombieWorld(size_t count) : internal(count * 3) {}
-    void create_entity(int health, float damage, bool is_alive) {
-        internal.create(health);
-        internal.create(damage);
-        internal.create(is_alive);
-    }
-    int* hp_raw() { return internal.raw<int>(); }
-    float* dmg_raw() { return internal.raw<float>(); }
-    size_t count() { return internal.slabFor<int>().allocated_count(); }
-};
-
-void zombie_update() {
-    auto start = NOW();
-    ZombieWorld world(ITEMS);
-
-    for (int i = 0; i < ITEMS; i++)
-        world.create_entity(100, 10.0f, true);
-
-    auto hps = world.internal.view<int>();
-    auto dmgs = world.internal.view<float>();
-    size_t count = hps.count;
-
-    for (int r = 0; r < RUNS; r++) {
-        int* hp_ptr = hps.data;
-        float* dmg_ptr = dmgs.data;
-
-        for (size_t i = 0; i < count; i++) {
-            hp_ptr[i] -= 1;
-            dmg_ptr[i] *= 0.99f;
-        }
-    }
-
-    auto end = NOW();
-    print_stats("proto zombie optimized: ", MS(start, end));
-}
-
-void zombie_update_archetype() {
+void archetype_zombie() {
     auto start = NOW();
     std::vector<int> health;
     std::vector<float> damage;
@@ -275,11 +277,10 @@ void zombie_update_archetype() {
 
     for (int r = 0; r < RUNS; r++) {
         for (int i = 0; i < ITEMS; i++) {
-            health[i] -= 1;
+            health[i]--;
             damage[i] *= 0.99f;
         }
     }
 
-    auto end = NOW();
-    print_stats("archetype zombie: ", MS(start, end));
+    print_stats("archetype zombie: ", MS(start, NOW()));
 }

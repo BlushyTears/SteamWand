@@ -1,94 +1,93 @@
 #include "Dcs.h"
 #include <iostream>
-#include "Benchmarks.h"
 #include <chrono>
+#include <cstdio>
+#include <vector>
+#include <algorithm>
+#include <optional>
+#include <tuple>
+#include "Benchmarks.h"
 
-#define ITEMS 25000000
+#define ITEMS 33000000
+#define RUNS  100
 #define NOW() std::chrono::high_resolution_clock::now()
 #define MS(start, end) std::chrono::duration<double, std::milli>(end - start).count()
 
-struct Character {
-    AtomBase* health;
-    AtomBase* strength;
-    AtomBase* speed;
-};
 
 void basicExamples() {
     const size_t COUNT = 1000000;
     World world(COUNT);
 
-    auto* atom = world.create(int(5));
+    // Basic create & free
+    Atom atom = world.create<int>(5);
     world.free<int>(atom);
 
-    auto* newthing = world.create(int(100));
-    auto h_x = world.get_handle<int>(newthing);
-    std::cout << "Initial handle value: " << *h_x << "\n";
-    *h_x += 5;
-    std::cout << "Modified handle value: " << *h_x << "\n";
+    // Entity with multiple components
+    Atom hp_p = world.create<int>(100);
+    Atom spd_p = world.create<float>(3.5f);
+    Atom wealth_p = world.create<int>(3);
+    Atom target_p = world.create<int>(5);
 
-    auto* hp_p = world.create(int(100));
-    auto* spd_p = world.create(3.5f);
-    auto* wealth_p = world.create(int(3));
-    auto* target_p = world.create(int(5));
+    std::vector<Atom> zombie = { hp_p, spd_p, wealth_p, target_p };
+    std::cout << "Normal zombie wealth: " << world.get<int>(zombie[2]) << "\n";
 
-    //std::vector<AtomBase*> zombie = { hp_p, spd_p, wealth_p, target_p };
-    //std::cout << "Normal zombie wealth: " << world.value_of<int>(zombie[2]) << "\n";
+    std::vector<Atom> super_zombie = world.clone_entity(zombie);
 
-    //std::vector<AtomBase*> super_zombie = world.clone_entity(zombie);
+    world.free_entity(zombie);
 
-    //world.free_entity(zombie);
+    world.get<int>(super_zombie[2]) = 5;
+    std::cout << "Super zombie wealth: " << world.get<int>(super_zombie[2]) << "\n";
 
-    //world.value_of<int>(super_zombie[2]) = 5;
-    //std::cout << "Super zombie wealth: " << world.value_of<int>(super_zombie[2]) << "\n";
+    // - Cache friendly way to manage a list of vec3's and ints if they're related -
+    World vecWorld(COUNT);
 
-    //// - Cache friendly way to manage a list of vec3's -
-    //World vecWorld(COUNT);
+    for (int i = 0; i < 4; i++) {
+        vecWorld.create<Vec3>(Vec3{ float(1 * i), float(2 * i), float(3 * i) });
+        vecWorld.create<int>(5);
+    }
 
-    //for (int i = 0; i < 4; i++) {
-    //    auto pos = vecWorld.create(Vec3{ float(1 * i), float(2 * i), float(3 * i) });
-    //    auto pos2 = vecWorld.create(int(5));
-    //}
+    // Iterate and modify Vec3 using view
+    for (auto& v : vecWorld.view<Vec3>()) {
+        v.x += 1.0f;
+        v.y += 2.0f;
+        v.z += 3.0f;
+    }
 
-    //vecWorld.iter<Vec3>([](Vec3& v) {
-    //    v.x += 1.0f;
-    //    v.y += 2.0f;
-    //    v.z += 3.0f;
-    //    });
+    world.free_entity(super_zombie);
 
-    //world.free_entity(super_zombie);
-    //// Clear integers here to demostrate the potential
-    //vecWorld.clear_all<Vec3>();
+    // Clear Vec3 here to demonstrate the potential
+    vecWorld.clear<Vec3>();
 
-    //// Loop unrolling can be a good idea since cout is slow and hurts cache performance
-    //vecWorld.iter<Vec3>([](Vec3& v) {
-    //    std::cout << v << "\n";
-    //    });
+    // Print remaining Vec3 (should be nothing)
+    for (const auto& v : vecWorld.view<Vec3>()) {
+        std::cout << v << "\n";
+    }
 
-    //// This will print nothing since it got cleared
-    //vecWorld.iter<int>([](int& v) {
-    //    std::cout << v << "\n";
-    //    });
+    // This will print ints (still exist)
+    for (const auto& v : vecWorld.view<int>()) {
+        std::cout << v << "\n";
+    }
 
-    //world.print(hp_p);
+    // Print using runtime dispatch
+    world.print(hp_p);
 }
 
 int main() {
-    basicExamples();
-    //std::cout << "Proto benchmark:\n";
-    linear_iteration();
-    query_parallel_proto();
-    multi_query_single_world();
-    backwards_query_proto();
+    //printf("Running benchmarks with %d items, %d runs each\n", ITEMS, RUNS);
 
-    std::cout << "\nEcs Archetype for benchmark gauge:\n";
+    printf("\n=== Steamwand benchmarks ===\n");
+    linear_iteration_v3();
+    query_parallel_v3();
+    multi_component_v3();
+    backwards_query_v3();
+    zombie_v3();
+
+    printf("\n=== ARCHETYPE benchmarks ===\n");
     archetype_linear();
-    archetype_query();
     archetype_multi();
-    backwards_query_archetype();
-
-    std::cout << "\nZombie 1v1 prototype vs Archetype maxed out performance:\n";
-    zombie_update();
-    zombie_update_archetype();
+    archetype_query_parallel();
+    archetype_backwards_query();
+    archetype_zombie();
 
     return 0;
 }
