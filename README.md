@@ -169,7 +169,7 @@ inline std::ostream& operator<<(std::ostream& os, const Health& h) {
 
 ## OOP-Style Storage
 
-If you prefer conventional objects, atoms can be stored as struct members. Note that copy construction is not currently supported.
+If you prefer conventional objects, atoms can be stored as struct members. Note that few operations are currently supporting structs. Do note that this is not recommended for larger projects due to the limitations of OOP, but can be a nice way to just try things out.
 
 ```cpp
 struct Character {
