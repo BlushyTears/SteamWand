@@ -14,14 +14,14 @@ void basicExamples() {
 
     World world(1024);
 
-    // 1. Adding now returns a Handle (Index + Generation)
-    Handle intHandle = world.add<int32_t>(42);
+    // 1. Adding now returns a Atom (Index + Generation)
+    Atom intAtom = world.add<int32_t>(42);
     world.add<float>(3.14f);
     world.add<Vec3>({ 1.0f, 2.0f, 3.0f });
 
     // 2. Safe Retrieval
     // This is safe even after cleanup() moves memory around
-    int32_t* val = world.get<int32_t>(intHandle);
+    int32_t* val = world.get<int32_t>(intAtom);
     if (val) {
         std::cout << "Retrieved value via handle: " << *val << "\n";
     }
@@ -35,9 +35,9 @@ void basicExamples() {
     world.cleanup();
 
     // 5. Post-Cleanup Safety Check
-    int32_t* expiredVal = world.get<int32_t>(intHandle);
+    int32_t* expiredVal = world.get<int32_t>(intAtom);
     if (!expiredVal) {
-        std::cout << "Handle correctly invalidated after deletion/cleanup.\n";
+        std::cout << "Atom correctly invalidated after deletion/cleanup.\n";
     }
 
     std::cout << "--------------------------------\n\n";
@@ -72,7 +72,7 @@ void worldOfWorldsExample() {
         nested.add<int32_t>(100 + i);
     }
 
-    Handle nestedHandle = universe.add<World>(std::move(nested));
+    Atom nestedHandle = universe.add<World>(std::move(nested));
     World* active = universe.get<World>(nestedHandle);
 
     if (active) {

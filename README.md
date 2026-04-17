@@ -8,8 +8,8 @@
 
 - **Use one world or many worlds:** Prototype with a single `World`, or nest worlds inside other worlds as data.
 - **Pay for what you use:** Data is stored per type in contiguous slabs, and nothing is allocated until you create it.
+- **Keep ownership explicit:** Every stored value carries a generational `Atom` handle.
 - **Compose freely:** Storage is runtime-driven, and the engine stays low-level and explicit.
-- **Keep ownership explicit:** Each stored value carries a handle with generation tracking.
 - **Stay flexible:** Worlds can be nested, moved, and accessed directly when you want maximum control.
 
 ---
@@ -20,7 +20,7 @@ SteamWand centers around a small set of building blocks:
 
 - `World`: owns type slabs, tracks storage, and handles deferred cleanup.
 - `Slab<T>`: per-type storage with aligned allocation and metadata.
-- `Handle`: a lightweight generational reference with `id` and `gen`.
+- `Atom`: a lightweight generational reference with `id` and `gen`.
 - `TypeInfo<T>`: maps C++ types to compact runtime type ids.
 - `AtomType`: enum of registered atom types.
 - `ISlab`: shared interface used by the world registry.
@@ -70,47 +70,47 @@ Available atom types are declared through `ATOM_TYPES` and assigned fixed type i
 
 ---
 
-## Creating Data
+## Creating Atoms
 
-Values are created through `World::add<T>()`. In this version of SteamWand, `add()` returns a `Handle` that includes both the handle id and generation.
+Values are created through `World::add<T>()`. In this version of SteamWand, `add()` returns an `Atom` that includes both the id and generation.
 
 ```cpp
 World world(1024);
 
-Handle intHandle = world.add<int32_t>(42);
-Handle floatHandle = world.add<float>(3.14f);
-Handle vecHandle = world.add<Vec3>({1.0f, 2.0f, 3.0f});
+Atom intAtom = world.add<int32_t>(42);
+Atom floatAtom = world.add<float>(3.14f);
+Atom vecAtom = world.add<Vec3>({1.0f, 2.0f, 3.0f});
 ```
 
 You can also move values into storage when the type supports it:
 
 ```cpp
 World nested(100);
-Handle nestedHandle = world.add<World>(std::move(nested));
+Atom nestedAtom = world.add<World>(std::move(nested));
 ```
 
 This makes nested-world composition a native pattern rather than a special case.
 
 ---
 
-## Safe Handle Access
+## Safe Atom Access
 
-Handles can be resolved back into live data with `World::get<T>()`.
+Atoms can be resolved back into live data with `World::get<T>()`.
 
 ```cpp
-int32_t* value = world.get<int32_t>(intHandle);
+int32_t* value = world.get<int32_t>(intAtom);
 if (value) {
     std::cout << "Retrieved value: " << *value << "\n";
 }
 ```
 
-If the handle is stale, deleted, or no longer matches the current generation, `get<T>()` returns `nullptr`.
+If the atom is stale, deleted, or no longer matches the current generation, `get<T>()` returns `nullptr`.
 
 ---
 
 ## Direct Slab Access
 
-When you want bulk iteration, you can bypass handle lookup and work directly on the underlying contiguous array.
+When you want bulk iteration, you can bypass atom lookup and work directly on the underlying contiguous array.
 
 ```cpp
 World world(1024);
@@ -148,7 +148,7 @@ for (uint32_t i = 0; i < (uint32_t)z1->size<int32_t>(); ++i) {
 }
 ```
 
-This is the current equivalent of reverse lookup: component data knows its owning `World`.
+This is the current equivalent of reverse lookup: atom data knows its owning `World`.
 
 ---
 
@@ -164,8 +164,8 @@ for (int i = 0; i < 5; i++) {
     nested.add<int32_t>(100 + i);
 }
 
-Handle nestedHandle = universe.add<World>(std::move(nested));
-World* active = universe.get<World>(nestedHandle);
+Atom nestedAtom = universe.add<World>(std::move(nested));
+World* active = universe.get<World>(nestedAtom);
 
 if (active) {
     int32_t* hps = active->get_array<int32_t>();
@@ -176,7 +176,7 @@ if (active) {
 }
 ```
 
-This pattern is especially useful if you want a world to act as a component of another world.
+This pattern is especially useful if you want a world to act as an atom inside another world.
 
 ---
 
@@ -197,20 +197,20 @@ The cleanup pass uses `swap_and_pop`, which keeps slab storage contiguous and ma
 
 ---
 
-## Generational Handles
+## Generational Atoms
 
-SteamWand now uses generational handles to reduce stale references. When an item is removed, its generation changes, and old handles no longer resolve.
+SteamWand uses generational atoms to reduce stale references. When an item is removed, its generation changes, and old atoms no longer resolve.
 
-That means a handle can survive code flow, but only remains valid if the underlying object is still the same live allocation. This is especially useful when cleanup reorders dense storage.
+That means an atom can survive code flow, but only remains valid if the underlying object is still the same live allocation. This is especially useful when cleanup reorders dense storage.
 
 ```cpp
-Handle h = world.add<int32_t>(42);
-int32_t* value = world.get<int32_t>(h);
+Atom a = world.add<int32_t>(42);
+int32_t* value = world.get<int32_t>(a);
 
 world.queue_free(0);
 world.cleanup();
 
-int32_t* expired = world.get<int32_t>(h); // nullptr if invalidated
+int32_t* expired = world.get<int32_t>(a); // nullptr if invalidated
 ```
 
 ---
@@ -225,13 +225,13 @@ void basicExamples() {
 
     World world(1024);
 
-    Handle intHandle = world.add<int32_t>(42);
+    Atom intAtom = world.add<int32_t>(42);
     world.add<float>(3.14f);
     world.add<Vec3>({1.0f, 2.0f, 3.0f});
 
-    int32_t* val = world.get<int32_t>(intHandle);
+    int32_t* val = world.get<int32_t>(intAtom);
     if (val) {
-        std::cout << "Retrieved value via handle: " << *val << "\n";
+        std::cout << "Retrieved value via atom: " << *val << "\n";
     }
 
     int32_t* hps = world.get_array<int32_t>();
@@ -240,9 +240,9 @@ void basicExamples() {
     world.queue_free(0);
     world.cleanup();
 
-    int32_t* expiredVal = world.get<int32_t>(intHandle);
+    int32_t* expiredVal = world.get<int32_t>(intAtom);
     if (!expiredVal) {
-        std::cout << "Handle correctly invalidated after deletion/cleanup.\n";
+        std::cout << "Atom correctly invalidated after deletion/cleanup.\n";
     }
 }
 ```
@@ -280,8 +280,8 @@ void worldOfWorldsExample() {
         nested.add<int32_t>(100 + i);
     }
 
-    Handle nestedHandle = universe.add<World>(std::move(nested));
-    World* active = universe.get<World>(nestedHandle);
+    Atom nestedAtom = universe.add<World>(std::move(nested));
+    World* active = universe.get<World>(nestedAtom);
 
     if (active) {
         int32_t* hps = active->get_array<int32_t>();
@@ -323,7 +323,7 @@ These are useful for comparing SteamWand’s slab-based design against archetype
 - `queue_free(index)` removes by slab index, so it is best used with care when multiple slabs share the same index layout.
 - Ownership metadata is stored per slab entry, not per logical entity abstraction.
 - `World` currently acts as both a container and a storable type, which is powerful but intentionally low-level.
-- Handle validity depends on generation matching, so stale references fail safely instead of pointing at moved data.
+- Atom validity depends on generation matching, so stale references fail safely instead of pointing at moved data.
 - The current code favors direct runtime storage over a higher-level ECS component graph.
 
 ---

@@ -20,14 +20,14 @@ inline std::ostream& operator<<(std::ostream& os, const Vec3& v) { return os << 
 
 struct World;
 
-struct Handle {
+struct Atom {
     uint32_t id;
     uint32_t gen;
 
     bool is_valid() const { 
         return id != 0xFFFFFFFF;
     }
-    static Handle invalid() { 
+    static Atom invalid() { 
         return { 0xFFFFFFFF, 0 };
     }
 };
@@ -108,7 +108,7 @@ struct Slab : public ISlab {
         _aligned_free(gen_map);
     }
 
-    Handle create(T&& val, World* owner) {
+    Atom create(T&& val, World* owner) {
         uint32_t dense_idx = live_count++;
         uint32_t h_id = next_handle_id++;
 
@@ -152,7 +152,7 @@ struct Slab : public ISlab {
         }
     }
 
-    T* resolve(Handle h) {
+    T* resolve(Atom h) {
         if (h.id >= next_handle_id || gen_map[h.id] != h.gen) 
             return nullptr;
 
@@ -221,18 +221,18 @@ struct World {
     }
 
     template<typename T>
-    Handle add(const T& val) {
+    Atom add(const T& val) {
         T copy = val;
         return slab<T>().create(std::move(copy), this);
     }
 
     template<typename T>
-    Handle add(T&& val) {
+    Atom add(T&& val) {
         return slab<std::decay_t<T>>().create(std::forward<T>(val), this);
     }
 
     template<typename T>
-    T* get(Handle h) {
+    T* get(Atom h) {
         return slab<T>().resolve(h);
     }
 
