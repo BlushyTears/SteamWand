@@ -10,9 +10,11 @@
 #include <cstring>
 #include <algorithm>
 
+// Custom datatypes
 struct Vec2 { float x, y; };
 struct Vec3 { float x, y, z; };
 
+// Optional and nice to customize your prints, but not necessary
 inline std::ostream& operator<<(std::ostream& os, const Vec2& v) { return os << "Vec2(" << v.x << ", " << v.y << ")"; }
 inline std::ostream& operator<<(std::ostream& os, const Vec3& v) { return os << "Vec3(" << v.x << ", " << v.y << ", " << v.z << ")"; }
 
@@ -22,8 +24,12 @@ struct Handle {
     uint32_t id;
     uint32_t gen;
 
-    bool is_valid() const { return id != 0xFFFFFFFF; }
-    static Handle invalid() { return { 0xFFFFFFFF, 0 }; }
+    bool is_valid() const { 
+        return id != 0xFFFFFFFF;
+    }
+    static Handle invalid() { 
+        return { 0xFFFFFFFF, 0 };
+    }
 };
 
 #define ATOM_TYPES(X) \
@@ -84,9 +90,12 @@ struct Slab : public ISlab {
         sparse_map = (uint32_t*)_aligned_malloc(cap * sizeof(uint32_t), 64);
         gen_map = (uint32_t*)_aligned_malloc(cap * sizeof(uint32_t), 64);
 
-        if (meta) memset(meta, 0, cap * sizeof(Meta));
-        if (gen_map) memset(gen_map, 0, cap * sizeof(uint32_t));
-        if (sparse_map) memset(sparse_map, 0xFF, cap * sizeof(uint32_t));
+        if (meta)
+            memset(meta, 0, cap * sizeof(Meta));
+        if (gen_map)
+            memset(gen_map, 0, cap * sizeof(uint32_t));
+        if (sparse_map)
+            memset(sparse_map, 0xFF, cap * sizeof(uint32_t));
     }
 
     ~Slab() {
@@ -112,7 +121,9 @@ struct Slab : public ISlab {
         meta[dense_idx].gen = gen_map[h_id];
         meta[dense_idx].handle_id = h_id;
 
-        return { h_id, gen_map[h_id] };
+        return { 
+            h_id, gen_map[h_id]
+        };
     }
 
     void swap_and_pop(uint32_t dense_index) override {
@@ -142,13 +153,19 @@ struct Slab : public ISlab {
     }
 
     T* resolve(Handle h) {
-        if (h.id >= next_handle_id || gen_map[h.id] != h.gen) return nullptr;
+        if (h.id >= next_handle_id || gen_map[h.id] != h.gen) 
+            return nullptr;
+
         uint32_t dense_idx = sparse_map[h.id];
         return (dense_idx == 0xFFFFFFFF) ? nullptr : &data[dense_idx];
     }
 
-    World* get_world(uint32_t index) const override { return meta[index].owner_world; }
-    size_t count() const override { return (size_t)live_count; }
+    World* get_world(uint32_t index) const override { 
+        return meta[index].owner_world;
+    }
+    size_t count() const override { 
+        return (size_t)live_count;
+    }
 
     void clear_all() override {
         for (uint32_t i = 0; i < live_count; ++i) data[i].~T();
@@ -240,12 +257,15 @@ struct World {
     }
 
     void cleanup() {
-        if (death_row.empty()) return;
+        if (death_row.empty()) 
+            return;
+
         std::sort(death_row.begin(), death_row.end(), std::greater<uint32_t>());
         uint32_t last_processed = 0xFFFFFFFF;
 
         for (uint32_t index : death_row) {
-            if (index == last_processed) continue;
+            if (index == last_processed) 
+                continue;
             for (ISlab* s : registry) {
                 if (s && s->count() > (size_t)index) s->swap_and_pop(index);
             }

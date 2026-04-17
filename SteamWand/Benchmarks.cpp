@@ -21,7 +21,7 @@
 
 static void print_stats(const char* name, double total_time) {
     printf("%-30s Total (Setup + %d runs): %.2fms\n", name, RUNS, total_time);
-    printf("--------------------------------------\n");
+    printf("----------------------------------------------------------------------------\n");
 }
 
 void steamwand_linear() {

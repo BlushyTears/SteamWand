@@ -8,9 +8,9 @@
 
 - **Use one world or many worlds:** Prototype with a single `World`, or nest worlds inside other worlds as data.
 - **Pay for what you use:** Data is stored per type in contiguous slabs, and nothing is allocated until you create it.
-- **Compose freely:** Atoms are just typed entries in a slab, and worlds are built from simple runtime storage.
-- **Keep ownership explicit:** Every stored value knows which `World` it belongs to.
-- **Stay runtime-driven:** Most structure is handled dynamically; you only pay compile-time cost for type registration.
+- **Compose freely:** Storage is runtime-driven, and the engine stays low-level and explicit.
+- **Keep ownership explicit:** Each stored value carries a handle with generation tracking.
+- **Stay flexible:** Worlds can be nested, moved, and accessed directly when you want maximum control.
 
 ---
 
@@ -20,10 +20,10 @@ SteamWand centers around a small set of building blocks:
 
 - `World`: owns type slabs, tracks storage, and handles deferred cleanup.
 - `Slab<T>`: per-type storage with aligned allocation and metadata.
-- `Atom`-style entries: values created through `World::add<T>()`.
+- `Handle`: a lightweight generational reference with `id` and `gen`.
 - `TypeInfo<T>`: maps C++ types to compact runtime type ids.
 - `AtomType`: enum of registered atom types.
-- `ComponentExample` is no longer the model; the current system uses `World` itself as a first-class stored type.
+- `ISlab`: shared interface used by the world registry.
 
 ---
 
@@ -66,37 +66,51 @@ Available atom types are declared through `ATOM_TYPES` and assigned fixed type i
     X(8, World,    World)
 ```
 
-The engine uses `AtomType::Empty = 0` for uninitialized slots, and `TypeInfo<T>` provides both `type_id` and `type_name` for registered types.
+`AtomType::Empty = 0` represents an invalid or uninitialized slot.
 
 ---
 
 ## Creating Data
 
-Values are created through `World::add<T>()`. In this version of SteamWand, `add()` stores the value directly in the slab for that type.
+Values are created through `World::add<T>()`. In this version of SteamWand, `add()` returns a `Handle` that includes both the handle id and generation.
 
 ```cpp
 World world(1024);
 
-world.add<int32_t>(42);
-world.add<float>(3.14f);
-world.add<Vec3>({1.0f, 2.0f, 3.0f});
-world.add<bool>(true);
+Handle intHandle = world.add<int32_t>(42);
+Handle floatHandle = world.add<float>(3.14f);
+Handle vecHandle = world.add<Vec3>({1.0f, 2.0f, 3.0f});
 ```
 
 You can also move values into storage when the type supports it:
 
 ```cpp
 World nested(100);
-world.add<World>(std::move(nested));
+Handle nestedHandle = world.add<World>(std::move(nested));
 ```
 
 This makes nested-world composition a native pattern rather than a special case.
 
 ---
 
+## Safe Handle Access
+
+Handles can be resolved back into live data with `World::get<T>()`.
+
+```cpp
+int32_t* value = world.get<int32_t>(intHandle);
+if (value) {
+    std::cout << "Retrieved value: " << *value << "\n";
+}
+```
+
+If the handle is stale, deleted, or no longer matches the current generation, `get<T>()` returns `nullptr`.
+
+---
+
 ## Direct Slab Access
 
-When you want bulk iteration, you can bypass per-item access and work directly on the underlying contiguous array.
+When you want bulk iteration, you can bypass handle lookup and work directly on the underlying contiguous array.
 
 ```cpp
 World world(1024);
@@ -121,11 +135,10 @@ This is the fastest way to walk a type’s storage when you control the layout.
 Each stored value keeps metadata for its owning world. This is useful for reverse lookup, debugging, and nested-world workflows.
 
 ```cpp
-World universe(1024);
-
 World* z1 = new World(1);
+
 z1->add<int32_t>(100);
-z1->add<float>(1.5f);
+z1->add<int32_t>(200);
 
 int32_t* hps = z1->get_array<int32_t>();
 
@@ -151,15 +164,15 @@ for (int i = 0; i < 5; i++) {
     nested.add<int32_t>(100 + i);
 }
 
-universe.add<World>(std::move(nested));
+Handle nestedHandle = universe.add<World>(std::move(nested));
+World* active = universe.get<World>(nestedHandle);
 
-World* nested_worlds = universe.get_array<World>();
-World& active = nested_worlds;
-
-int32_t* hps = active.get_array<int32_t>();
-for (size_t i = 0; i < active.size<int32_t>(); i++) {
-    World* owner = active.get_world_at<int32_t>(i);
-    std::cout << "Nested Entity " << i << " HP: " << hps[i] << " (Owner World: " << owner << ")\n";
+if (active) {
+    int32_t* hps = active->get_array<int32_t>();
+    for (size_t i = 0; i < active->size<int32_t>(); i++) {
+        World* owner = active->get_world_at<int32_t>(i);
+        std::cout << "Nested Entity " << i << " HP: " << hps[i] << " (Owner World: " << owner << ")\n";
+    }
 }
 ```
 
@@ -184,25 +197,53 @@ The cleanup pass uses `swap_and_pop`, which keeps slab storage contiguous and ma
 
 ---
 
+## Generational Handles
+
+SteamWand now uses generational handles to reduce stale references. When an item is removed, its generation changes, and old handles no longer resolve.
+
+That means a handle can survive code flow, but only remains valid if the underlying object is still the same live allocation. This is especially useful when cleanup reorders dense storage.
+
+```cpp
+Handle h = world.add<int32_t>(42);
+int32_t* value = world.get<int32_t>(h);
+
+world.queue_free(0);
+world.cleanup();
+
+int32_t* expired = world.get<int32_t>(h); // nullptr if invalidated
+```
+
+---
+
 ## Example Usage
 
 ### Basic storage
 
 ```cpp
 void basicExamples() {
+    std::cout << "--- Basic SteamWand Examples (Generational) ---\n";
+
     World world(1024);
 
-    world.add<int32_t>(42);
+    Handle intHandle = world.add<int32_t>(42);
     world.add<float>(3.14f);
     world.add<Vec3>({1.0f, 2.0f, 3.0f});
-    world.add<bool>(true);
+
+    int32_t* val = world.get<int32_t>(intHandle);
+    if (val) {
+        std::cout << "Retrieved value via handle: " << *val << "\n";
+    }
 
     int32_t* hps = world.get_array<int32_t>();
-    std::cout << "First HP value: " << hps << "\n";
-    std::cout << "Float slab size: " << world.size<float>() << "\n";
+    std::cout << "First HP value in raw array: " << hps << "\n";
 
     world.queue_free(0);
     world.cleanup();
+
+    int32_t* expiredVal = world.get<int32_t>(intHandle);
+    if (!expiredVal) {
+        std::cout << "Handle correctly invalidated after deletion/cleanup.\n";
+    }
 }
 ```
 
@@ -210,14 +251,11 @@ void basicExamples() {
 
 ```cpp
 void reverseLookupExample() {
+    std::cout << "--- Reverse Lookup Example ---\n";
     World* z1 = new World(1);
-    World* z2 = new World(1);
 
     z1->add<int32_t>(100);
-    z1->add<float>(1.5f);
-
-    z2->add<int32_t>(200);
-    z2->add<float>(3.0f);
+    z1->add<int32_t>(200);
 
     int32_t* hps = z1->get_array<int32_t>();
 
@@ -227,7 +265,6 @@ void reverseLookupExample() {
     }
 
     delete z1;
-    delete z2;
 }
 ```
 
@@ -235,6 +272,7 @@ void reverseLookupExample() {
 
 ```cpp
 void worldOfWorldsExample() {
+    std::cout << "--- World of Worlds Example (Refactored) ---\n";
     World universe(10);
 
     World nested(100);
@@ -242,18 +280,41 @@ void worldOfWorldsExample() {
         nested.add<int32_t>(100 + i);
     }
 
-    universe.add<World>(std::move(nested));
+    Handle nestedHandle = universe.add<World>(std::move(nested));
+    World* active = universe.get<World>(nestedHandle);
 
-    World* nested_worlds = universe.get_array<World>();
-    World& active = nested_worlds;
-
-    int32_t* hps = active.get_array<int32_t>();
-    for (size_t i = 0; i < active.size<int32_t>(); i++) {
-        World* owner = active.get_world_at<int32_t>(i);
-        std::cout << "Nested Entity " << i << " HP: " << hps[i] << " (Owner World: " << owner << ")\n";
+    if (active) {
+        int32_t* hps = active->get_array<int32_t>();
+        for (size_t i = 0; i < active->size<int32_t>(); i++) {
+            World* owner = active->get_world_at<int32_t>(i);
+            std::cout << "Nested Entity " << i << " HP: " << hps[i] << " (Owner World: " << owner << ")\n";
+        }
     }
 }
 ```
+
+---
+
+## Benchmarks
+
+The repository also includes benchmark entry points for performance testing.
+
+```cpp
+printf("\n=== Steamwand benchmarks ===\n");
+steamwand_linear();
+steamwand_query_parralel();
+steamwand_multi_component();
+steamwand_backwards_query();
+steamwand_zombie();
+
+archetype_linear();
+archetype_query_parallel();
+archetype_multi();
+archetype_backwards_query();
+archetype_zombie();
+```
+
+These are useful for comparing SteamWand’s slab-based design against archetype-based approaches.
 
 ---
 
@@ -262,15 +323,16 @@ void worldOfWorldsExample() {
 - `queue_free(index)` removes by slab index, so it is best used with care when multiple slabs share the same index layout.
 - Ownership metadata is stored per slab entry, not per logical entity abstraction.
 - `World` currently acts as both a container and a storable type, which is powerful but intentionally low-level.
+- Handle validity depends on generation matching, so stale references fail safely instead of pointing at moved data.
 - The current code favors direct runtime storage over a higher-level ECS component graph.
 
 ---
 
 ## Planned Features
 
-- Better reverse lookup from stored data to higher-level identifiers.
 - Safer entity abstraction on top of world-owned slabs.
 - Runtime add/remove of components.
+- Better reverse lookup from stored data to higher-level identifiers.
 - Active-slot iteration that skips freed entries.
 - Multi-threaded slab iteration.
 - Coroutine-friendly task systems.

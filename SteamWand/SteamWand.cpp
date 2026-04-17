@@ -62,6 +62,7 @@ void reverseLookupExample() {
     std::cout << "------------------------------\n\n";
 }
 
+// Way to do reverse lookup (Useful for things like collision checking against many potential targets):
 void worldOfWorldsExample() {
     std::cout << "--- World of Worlds Example (Refactored) ---\n";
     World universe(10);
@@ -95,6 +96,11 @@ int main() {
     steamwand_backwards_query();
     steamwand_zombie();
     
+    archetype_linear();
+    archetype_query_parallel();
+    archetype_multi();
+    archetype_backwards_query();
+    archetype_zombie();
 
     return 0;
 }
