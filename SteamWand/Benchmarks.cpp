@@ -1,6 +1,4 @@
 #include <cstdio>
-#include <optional>
-#include <tuple>
 #include <vector>
 #include <cstdint>
 #include <chrono>
@@ -29,9 +27,7 @@ static void print_stats(const char* name, double total_time) {
 void steamwand_linear() {
     auto start = NOW();
     World world(ITEMS);
-
-    for (int i = 0; i < ITEMS; i++)
-        world.create_atom<float>(float(i));
+    for (int i = 0; i < ITEMS; i++) world.add<float>(float(i));
 
     float* RESTRICT data = world.get_array<float>();
     size_t count = world.size<float>();
@@ -41,17 +37,15 @@ void steamwand_linear() {
             for (size_t i = 0; i < count; i++)
                 data[i] = data[i] * 2.0f + 1.0f;
     }
-
     print_stats("Steamwand linear:", MS(start, NOW()));
 }
 
 void steamwand_query_parralel() {
     auto start = NOW();
     World world(ITEMS);
-
     for (int i = 0; i < ITEMS; i++) {
-        world.create_atom<Vec3>({ float(i), float(i * 2), float(i * 3) });
-        world.create_atom<float>(float(i) * 0.5f);
+        world.add<Vec3>({ float(i), float(i * 2), float(i * 3) });
+        world.add<float>(float(i) * 0.5f);
     }
 
     Vec3* RESTRICT pos = world.get_array<Vec3>();
@@ -66,18 +60,16 @@ void steamwand_query_parralel() {
                 pos[i].z += spd[i];
             }
     }
-
     print_stats("Steamwand query parallel:", MS(start, NOW()));
 }
 
 void steamwand_multi_component() {
     auto start = NOW();
     World world(ITEMS);
-
     for (int i = 0; i < ITEMS; i++) {
-        world.create_atom<Vec3>({ float(i), float(i * 2), float(i * 3) });
-        world.create_atom<float>(float(i) * 0.5f);
-        world.create_atom<int32_t>(i);
+        world.add<Vec3>({ float(i), float(i * 2), float(i * 3) });
+        world.add<float>(float(i) * 0.5f);
+        world.add<int32_t>(i);
     }
 
     Vec3* RESTRICT pos = world.get_array<Vec3>();
@@ -94,20 +86,16 @@ void steamwand_multi_component() {
                 hp[i]--;
             }
     }
-
     print_stats("Steamwand multi:", MS(start, NOW()));
 }
 
 void steamwand_backwards_query() {
     auto start = NOW();
     World world(ITEMS);
-
     for (int i = 0; i < ITEMS; i++) {
-        world.create_atom<Vec3>({ float(i), float(i * 2), float(i * 3) });
-        if (i % 2 == 0)
-            world.create_atom<float>(float(i) * 0.5f);
-        else
-            world.create_atom<bool>(true);
+        world.add<Vec3>({ float(i), float(i * 2), float(i * 3) });
+        if (i % 2 == 0) world.add<float>(float(i) * 0.5f);
+        else world.add<bool>(true);
     }
 
     Vec3* RESTRICT pos = world.get_array<Vec3>();
@@ -122,56 +110,45 @@ void steamwand_backwards_query() {
                 pos[i].z += spd[i];
             }
     }
-
     print_stats("Steamwand backwards:", MS(start, NOW()));
 }
 
 void steamwand_zombie() {
     auto start = NOW();
-    World zombieWorld(ITEMS);
-
+    World pool(ITEMS);
     for (int i = 0; i < ITEMS; i++) {
-        zombieWorld.create_atom<int32_t>(100);
-        zombieWorld.create_atom<float>(10.0f);
-        zombieWorld.create_atom<bool>(true);
+        pool.add<int32_t>(100);
+        pool.add<float>(10.0f);
     }
+
+    int32_t* RESTRICT hp = pool.get_array<int32_t>();
+    float* RESTRICT dmg = pool.get_array<float>();
+    size_t count = pool.size<int32_t>();
 
     for (int r = 0; r < RUNS; r++) {
-        int32_t* RESTRICT hp = zombieWorld.get_array<int32_t>();
-        float* RESTRICT dmg = zombieWorld.get_array<float>();
-        size_t count = zombieWorld.size<int32_t>();
-
         FORCE_VEC
             for (size_t i = 0; i < count; i++) {
-                hp[i]--;
+                hp[i] -= 1;
                 dmg[i] *= 0.99f;
+                if (hp[i] <= 0) {
+                    hp[i] = 0;
+                }
             }
-
-        for (size_t i = 0; i < count; i++) {
-            if (hp[i] <= 0) {
-                zombieWorld.queue_free((uint32_t)i);
-            }
-        }
     }
-
     print_stats("Steamwand zombie:", MS(start, NOW()));
 }
 
 void archetype_linear() {
     auto start = NOW();
     std::vector<float> data(ITEMS);
-
-    for (int i = 0; i < ITEMS; i++)
-        data[i] = float(i);
+    for (int i = 0; i < ITEMS; i++) data[i] = float(i);
 
     for (int r = 0; r < RUNS; r++) {
         float* RESTRICT raw = data.data();
         size_t n = data.size();
         FORCE_VEC
-            for (size_t i = 0; i < n; i++)
-                raw[i] = raw[i] * 2.0f + 1.0f;
+            for (size_t i = 0; i < n; i++) raw[i] = raw[i] * 2.0f + 1.0f;
     }
-
     print_stats("vector linear:", MS(start, NOW()));
 }
 
@@ -179,7 +156,6 @@ void archetype_query_parallel() {
     auto start = NOW();
     std::vector<Vec3> pos(ITEMS);
     std::vector<float> speed(ITEMS);
-
     for (int i = 0; i < ITEMS; i++) {
         pos[i] = { float(i), float(i * 2), float(i * 3) };
         speed[i] = float(i) * 0.5f;
@@ -190,12 +166,9 @@ void archetype_query_parallel() {
         float* RESTRICT s = speed.data();
         FORCE_VEC
             for (size_t i = 0; i < ITEMS; i++) {
-                p[i].x += s[i];
-                p[i].y += s[i];
-                p[i].z += s[i];
+                p[i].x += s[i]; p[i].y += s[i]; p[i].z += s[i];
             }
     }
-
     print_stats("archetype query parallel:", MS(start, NOW()));
 }
 
@@ -204,7 +177,6 @@ void archetype_multi() {
     std::vector<Vec3> pos(ITEMS);
     std::vector<float> speed(ITEMS);
     std::vector<int32_t> health(ITEMS);
-
     for (int i = 0; i < ITEMS; i++) {
         pos[i] = { float(i), float(i * 2), float(i * 3) };
         speed[i] = float(i) * 0.5f;
@@ -217,13 +189,10 @@ void archetype_multi() {
         int32_t* RESTRICT h = health.data();
         FORCE_VEC
             for (int i = 0; i < ITEMS; i++) {
-                p[i].x += s[i];
-                p[i].y += s[i];
-                p[i].z += s[i];
+                p[i].x += s[i]; p[i].y += s[i]; p[i].z += s[i];
                 h[i]--;
             }
     }
-
     print_stats("archetype multi:", MS(start, NOW()));
 }
 
@@ -231,12 +200,9 @@ void archetype_backwards_query() {
     auto start = NOW();
     std::vector<Vec3> ps_pos(ITEMS / 2);
     std::vector<float> ps_speed(ITEMS / 2);
-    std::vector<Vec3> po_pos(ITEMS / 2);
-
     for (int i = 0; i < ITEMS / 2; i++) {
         ps_pos[i] = { float(i), float(i * 2), float(i * 3) };
         ps_speed[i] = float(i) * 0.5f;
-        po_pos[i] = { float(i), float(i * 2), float(i * 3) };
     }
 
     for (int r = 0; r < RUNS; r++) {
@@ -245,12 +211,9 @@ void archetype_backwards_query() {
         size_t n = ps_pos.size();
         FORCE_VEC
             for (size_t i = 0; i < n; i++) {
-                p[i].x += s[i];
-                p[i].y += s[i];
-                p[i].z += s[i];
+                p[i].x += s[i]; p[i].y += s[i]; p[i].z += s[i];
             }
     }
-
     print_stats("archetype backwards:", MS(start, NOW()));
 }
 
@@ -258,27 +221,19 @@ void archetype_zombie() {
     auto start = NOW();
     std::vector<int32_t> health(ITEMS, 100);
     std::vector<float> damage(ITEMS, 10.0f);
-    std::vector<bool> active(ITEMS, true);
-    std::vector<uint32_t> free_queue;
-    free_queue.reserve(ITEMS);
+
+    int32_t* RESTRICT h = health.data();
+    float* RESTRICT d = damage.data();
 
     for (int r = 0; r < RUNS; r++) {
-        int32_t* RESTRICT h = health.data();
-        float* RESTRICT d = damage.data();
-
         FORCE_VEC
             for (int i = 0; i < ITEMS; i++) {
-                h[i]--;
+                h[i] -= 1;
                 d[i] *= 0.99f;
+                if (h[i] <= 0) {
+                    h[i] = 0;
+                }
             }
-
-        for (int i = 0; i < ITEMS; i++) {
-            if (h[i] <= 0) {
-                free_queue.push_back((uint32_t)i);
-            }
-        }
-        free_queue.clear();
     }
-
     print_stats("archetype zombie:", MS(start, NOW()));
 }
