@@ -6,12 +6,12 @@
 
 ## Core Philosophy
 
-- **Use one world or many worlds:** Prototype with a single `World`, or nest worlds inside other worlds as data.
+- **Use one world or many worlds:** Prototype with a single `World`, nest worlds inside other worlds or keep many decoupled worlds based on your needs.
 - **Pay for what you use:** Data is stored per type in contiguous slabs, and nothing is allocated until you create it.
 - **Keep ownership explicit:** Every stored value carries a generational `Atom` handle.
 - **Compose freely:** Storage is runtime-driven, **any C++ type works out of the box** - no macros needed.
 - **Stay flexible:** Worlds can be nested, moved, and accessed directly when you want maximum control.
-
+- **Respects the programmer** SteamWand aims to be an engine that lets the end-user do more, not less with infinite guardrails.
 ---
 
 ## Core Types
