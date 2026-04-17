@@ -12,6 +12,7 @@
 - **Compose freely:** Storage is runtime-driven, **any C++ type works out of the box** - no macros needed.
 - **Stay flexible:** Worlds can be nested, moved, and accessed directly when you want maximum control.
 - **Respects the programmer**: SteamWand aims to be an engine that lets the end-user do more, not less with infinite guardrails.
+
 ---
 
 ## Core Types
@@ -21,7 +22,7 @@ SteamWand centers around a small set of building blocks:
 - `World`: owns type slabs, tracks storage, and handles deferred cleanup.
 - `Slab<T>`: per-type storage with aligned allocation and metadata.
 - `Atom`: a lightweight generational reference with `id` and `gen`.
-- `View<Types...>`: multi-slab query system for type-safe iteration.
+- `View<Types...>`: multi-slab query system for type-safe iteration using bitmasks for sparse iteration.
 
 ---
 
@@ -68,12 +69,13 @@ for (size_t i = 0; i < world.size<int32_t>(); ++i) {
 
 ## Multi-Type Queries with `View`
 
-`World::view<Types...>()` creates type-safe multi-slab iterators:
+`World::view<Types...>()` creates type-safe multi-slab iterators using bitmask presence tracking:
 
 ```cpp
 // Example: Zombies with HP, Speed, Position
-auto full_zombie_view = world.view<int32_t, float, Vec3>();
-full_zombie_view.each([](int32_t& hp, float& speed, Vec3& pos) {
+auto zombie_view = world.view<int32_t, Vec3, float>();
+
+zombie_view.each([](int32_t& hp, Vec3& pos, float& speed) {
     if (hp > 0) {
         pos.x += speed * 0.016f;
         hp -= 1;
@@ -97,7 +99,7 @@ for (size_t i = 0; i < world.size<int32_t>(); ++i) {
 
 ## World of Worlds
 
-Store worlds as atoms for hierarchy (Similar to Godot scenes):
+Store worlds as atoms for hierarchy (Similar concept to Godot scenes):
 
 ```cpp
 World universe(10);
@@ -134,23 +136,7 @@ world.cleanup();  // Explicit deferred cleanup
 
 ---
 
-### Views in action
-
-```cpp
-void zombie_system(World& world) {
-    // Process all zombies (HP + Position + Speed)
-    auto zombie_view = world.view<int32_t, Vec3, float>();
-    
-    zombie_view.each([](int32_t& hp, Vec3& pos, float& speed) {
-        if (hp > 0) {
-            pos.x += speed * 0.016f;
-            hp -= 1;
-        }
-    });
-}
-```
-
-### Zero-config custom types
+### Custom types
 
 ```cpp
 void basicExamples() {
@@ -173,7 +159,7 @@ void basicExamples() {
 ## Current Characteristics
 
 - **Dynamic typing**: Any C++ type via `TypeInfo<T>::id()`
-- **Multi-type views**: `view<Types...>()` for queries
+- **Multi-type views**: `view<Types...>()` for queries using bitmask iteration
 - **Generation marking**: No compaction, sparse over time
 - **Zero boilerplate**: No macros, no registration
 

@@ -10,6 +10,19 @@
 #include <algorithm>
 #include <tuple>
 
+#ifdef _MSC_VER
+#include <intrin.h>
+static inline uint32_t ctz64(uint64_t v) {
+    unsigned long idx;
+    _BitScanForward64(&idx, v);
+    return (uint32_t)idx;
+}
+#else
+static inline uint32_t ctz64(uint64_t v) {
+    return (uint32_t)__builtin_ctzll(v);
+}
+#endif
+
 struct Vec2 { float x, y; };
 struct Vec3 { float x, y, z; };
 struct World;
@@ -60,26 +73,41 @@ struct Slab : public ISlab {
     T* data;
     Meta* meta;
     uint32_t* gens;
-
+    uint64_t* presence; // added
     uint32_t cap;
     uint32_t next_idx;
+
+    size_t count() const override {
+        return (size_t)next_idx;
+    }
+
+    World* get_world(uint32_t index) const override {
+        return (World*)meta[index].owner;
+    }
 
     Slab(uint32_t capacity) : cap(capacity), next_idx(0) {
         data = (T*)_aligned_malloc(cap * sizeof(T), 64);
         meta = (Meta*)_aligned_malloc(cap * sizeof(Meta), 64);
         gens = (uint32_t*)_aligned_malloc(cap * sizeof(uint32_t), 64);
+        uint32_t words = (cap + 63) / 64;
+        presence = (uint64_t*)_aligned_malloc(words * sizeof(uint64_t), 64);
         memset(gens, 0, cap * sizeof(uint32_t));
+        memset(presence, 0, words * sizeof(uint64_t));
     }
 
     ~Slab() {
-        for (uint32_t i = 0; i < next_idx; ++i) {
-            if (gens[i] % 2 != 0) {
-                data[i].~T();
-            }
-        }
+        for (uint32_t i = 0; i < next_idx; ++i)
+            if (gens[i] % 2 != 0) data[i].~T();
         _aligned_free(data);
         _aligned_free(meta);
         _aligned_free(gens);
+        _aligned_free(presence);
+    }
+
+    T* resolve(Atom h) {
+        if (h.id >= next_idx || gens[h.id] != h.gen)
+            return nullptr;
+        return &data[h.id];
     }
 
     Atom create(T&& val, World* owner) {
@@ -88,6 +116,7 @@ struct Slab : public ISlab {
         gens[idx] = (gens[idx] + 1) | 1;
         meta[idx].owner = (void*)owner;
         meta[idx].gen = gens[idx];
+        presence[idx / 64] |= (1ULL << (idx % 64)); // set bit
         return { idx, gens[idx] };
     }
 
@@ -95,58 +124,57 @@ struct Slab : public ISlab {
         if (index < next_idx && (gens[index] % 2 != 0)) {
             data[index].~T();
             gens[index]++;
+            presence[index / 64] &= ~(1ULL << (index % 64)); // clear bit
         }
-    }
-
-    T* resolve(Atom h) {
-        if (h.id >= next_idx || gens[h.id] != h.gen) {
-            return nullptr;
-        }
-        return &data[h.id];
-    }
-
-    World* get_world(uint32_t index) const override {
-        return (World*)meta[index].owner;
-    }
-
-    size_t count() const override {
-        return (size_t)next_idx;
     }
 
     void clear_all() override {
-        for (uint32_t i = 0; i < next_idx; ++i) {
-            if (gens[i] % 2 != 0) {
-                data[i].~T();
-            }
-        }
+        for (uint32_t i = 0; i < next_idx; ++i)
+            if (gens[i] % 2 != 0) data[i].~T();
         next_idx = 0;
+        uint32_t words = (cap + 63) / 64;
         memset(gens, 0, cap * sizeof(uint32_t));
+        memset(presence, 0, words * sizeof(uint64_t));
     }
+
+    // unchanged: resolve, get_world, count
 };
 
 template <typename... Types>
 struct View {
     std::tuple<Slab<Types>*...> slabs;
-    View(Slab<Types>*... slabs) : slabs(slabs...) {}
+
+    View(Slab<Types>*... s) : slabs(s...) {}
 
     template <typename T>
     Slab<T>* get_slab() {
         return std::get<Slab<T>*>(slabs);
     }
 
-    bool slot_is_alive(uint32_t i) {
-        auto check_alive = [&](auto*... s) {
-            return ((s->gens[i] % 2 != 0) && ...);
+    uint32_t get_max_idx() const {
+        uint32_t max_idx = 0;
+        auto check_max = [&](auto* s) {
+            if (s->next_idx > max_idx) max_idx = s->next_idx;
             };
-        return std::apply(check_alive, slabs);
+        std::apply([&](auto*... s) { (check_max(s), ...); }, slabs);
+        return max_idx;
     }
 
-    uint32_t get_min_idx() const {
-        auto find_min = [](auto*... s) {
-            uint32_t m = std::min({ s->next_idx... });
-            return (m == std::numeric_limits<uint32_t>::max()) ? 0 : m;
-            };
-        return std::apply(find_min, slabs);
+    uint64_t get_combined_mask(uint32_t word_idx) const {
+        uint64_t mask = ~0ULL;
+
+        auto apply_mask = [&](auto* s) {
+            uint32_t base = word_idx * 64;
+            if (base >= s->next_idx) {
+                mask = 0;
+            }
+            else {
+                mask &= s->presence[word_idx];
+            }
+        };
+
+        std::apply([&](auto*... s) { (apply_mask(s), ...); }, slabs);
+        return mask;
     }
 
     template <typename Func>
@@ -154,11 +182,19 @@ struct View {
         if constexpr (sizeof...(Types) == 0) 
             return;
 
-        const uint32_t count = get_min_idx();
+        uint32_t max_idx = get_max_idx();
+        uint32_t word_count = (max_idx + 63) / 64;
 
-        for (uint32_t i = 0; i < count; ++i) {
-            if (slot_is_alive(i)) {
-                func(get_slab<Types>()->data[i]...);
+        for (uint32_t w = 0; w < word_count; ++w) {
+            uint64_t live = get_combined_mask(w);
+
+            while (live) {
+                uint32_t bit = ctz64(live);
+                uint32_t slot = (w * 64) + bit;
+
+                func(std::get<Slab<Types>*>(slabs)->data[slot]...);
+
+                live &= (live - 1);
             }
         }
     }
@@ -192,9 +228,8 @@ struct World {
     template<typename T>
     Slab<T>& get_slab() {
         uint32_t tid = TypeInfo<T>::id();
-        if (tid >= registry.size()) {
+        if (tid >= registry.size())
             registry.resize(tid + 1, nullptr);
-        }
         if (!registry[tid]) {
             auto s = std::make_unique<Slab<T>>(cap);
             registry[tid] = s.get();

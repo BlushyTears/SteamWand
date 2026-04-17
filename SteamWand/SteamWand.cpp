@@ -9,6 +9,18 @@
 #define NOW() std::chrono::high_resolution_clock::now()
 #define MS(start, end) std::chrono::duration<double, std::milli>(end - start).count()
 
+
+// Todo:
+// Cleanup should be automatic in world raii probably instead of explicit
+// queue_free should take atom not index to avoid freeing the wrong data
+// view should potentially be removed
+
+// get_slab<T>() has a subtle bug. When a type is registered for the first time, 
+// it pushes the unique_ptr into storage but stores a raw pointer into registry. 
+// If storage reallocates (it's a std::vector), the raw pointers in registry become dangling. 
+// 
+
+
 void basicExamples() {
     std::cout << "--- Basic SteamWand Examples (Generational) ---\n";
 
@@ -99,21 +111,21 @@ void multipleWorldsExample() {
 }
 
 int main() {
-    //basicExamples();
-    //reverseLookupExample();
-    //multipleWorldsExample();
+    basicExamples();
+    reverseLookupExample();
+    multipleWorldsExample();
 
-    steamwand_linear();
-    steamwand_query_parallel();
-    steamwand_multi_component();
-    steamwand_backwards_query();
-    steamwand_zombie();
+    //steamwand_linear();
+    //steamwand_query_parallel();
+    //steamwand_multi_component();
+    //steamwand_backwards_query();
+    //steamwand_zombie();
 
-    archetype_linear();
-    archetype_query_parallel();
-    archetype_multi();
-    archetype_backwards_query();
-    archetype_zombie();
+    //archetype_linear();
+    //archetype_query_parallel();
+    //archetype_multi();
+    //archetype_backwards_query();
+    //archetype_zombie();
 
     return 0;
 }

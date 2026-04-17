@@ -50,17 +50,11 @@ void steamwand_query_parallel() {
     }
 
     auto v = world.view<Vec3, float>();
-    uint32_t limit = v.get_min_idx();
-
-    auto* pos_slab = v.get_slab<Vec3>();
-    auto* spd_slab = v.get_slab<float>();
 
     for (int r = 0; r < RUNS; r++) {
-        for (int i = 0; i < (int)limit; i++) {
-            if ((pos_slab->gens[i] & 1) && (spd_slab->gens[i] & 1)) {
-                pos_slab->data[i].x += spd_slab->data[i];
-            }
-        }
+        v.each([](Vec3& pos, float& spd) {
+            pos.x += spd;
+            });
     }
 
     print_stats("Steamwand parallel (unaligned):", MS(start, NOW()));
