@@ -11,7 +11,7 @@
 - **Keep ownership explicit:** Every stored value carries a generational `Atom` handle.
 - **Compose freely:** Storage is runtime-driven, **any C++ type works out of the box** - no macros needed.
 - **Stay flexible:** Worlds can be nested, moved, and accessed directly when you want maximum control.
-- **Respects the programmer** SteamWand aims to be an engine that lets the end-user do more, not less with infinite guardrails.
+- **Respects the programmer**: SteamWand aims to be an engine that lets the end-user do more, not less with infinite guardrails.
 ---
 
 ## Core Types
@@ -75,7 +75,7 @@ for (size_t i = 0; i < world.size<int32_t>(); ++i) {
 auto full_zombie_view = world.view<int32_t, float, Vec3>();
 full_zombie_view.each([](int32_t& hp, float& speed, Vec3& pos) {
     if (hp > 0) {
-        pos.x += speed * 0.016f;  // Move forward
+        pos.x += speed * 0.016f;
         hp -= 1;
     }
 });
@@ -134,8 +134,6 @@ world.cleanup();  // Explicit deferred cleanup
 
 ---
 
-## Example Usage
-
 ### Views in action
 
 ```cpp
@@ -183,8 +181,8 @@ void basicExamples() {
 
 ## Planned Features
 
-- Non-disruptive defragmentation
-- Multi-threaded views with coroutines
+- Non-disruptive defragmentation (No pop and swap)
+- Coroutines implementation
 - Serialization
 
 ---
