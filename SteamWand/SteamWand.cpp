@@ -1,99 +1,108 @@
 #include "Dcs.h"
+#include "Benchmarks.h"
 #include <iostream>
 #include <chrono>
-#include <cstdio>
-#include <vector>
-#include <algorithm>
-#include <optional>
-#include <tuple>
-#include "Benchmarks.h"
 
 #define ITEMS 33000000
-#define RUNS 100
+#define RUNS  100
 #define NOW() std::chrono::high_resolution_clock::now()
 #define MS(start, end) std::chrono::duration<double, std::milli>(end - start).count()
 
+enum class Zombie : uint8_t {
+    HP,
+    Speed,
+    Wealth,
+    Target,
+    COUNT
+};
+
+enum class SuperZombie : uint8_t {
+    HP,
+    Speed,
+    Wealth,
+    Target,
+    Power,
+    COUNT
+};
+
+struct Character {
+    Atom health;
+    Atom strength;
+    Atom speed;
+};
+
+// TODO 1: DYNAMIC QUERIES
+//   world.query<int32_t, Vec3>([](int32_t& hp, Vec3& pos) { hp -= 10; });
+//
+// TODO 2: PAGED SLABS
+//   Rare components waste N slots. Allocate pages on demand.
+//
+// TODO 3: COMPONENT ADD/REMOVE AT RUNTIME
+//   world.add_component<Burning>(zombie_handle, { damage_per_sec });
+//
+// TODO 4: REVERSE LOOKUP (entity_id -> Atom)
+//   Atom hp = world.find_atom(entity_id, TypeInfo<int32_t>::type_id);
+
 void basicExamples() {
-    const size_t COUNT = 1000000;
-    World world(COUNT);
+    std::cout << "--- Cloning & Upgrading Example ---\n";
+    World world(1024);
 
-    // Basic create & free
-    Atom atom = world.create_atom<int>(5);
-    world.free<int>(atom);
+    auto regular = create_entity<Zombie>(world,
+        Field<Zombie::HP, int32_t>{ 100 },
+        Field<Zombie::Speed, float>  { 1.5f },
+        Field<Zombie::Wealth, int32_t>{ 50 },
+        Field<Zombie::Target, Vec2>   {{ 10.0f, 20.0f }}
+    );
+    std::cout << "Regular Zombie HP: " << regular.get<int32_t>(Zombie::HP, world) << "\n";
 
-    // Entity with multiple components
-    Atom hp_p = world.create_atom<int>(100);
-    Atom spd_p = world.create_atom<float>(3.5f);
-    Atom wealth_p = world.create_atom<int>(3);
-    Atom target_p = world.create_atom<int>(5);
+    auto boss = clone_entity<SuperZombie>(regular, world);
+    boss.atoms[(size_t)SuperZombie::Power] = world.create_atom<float>(9001.0f);
 
-    std::vector<Atom> zombie = { hp_p, spd_p, wealth_p, target_p };
-    std::cout << "Normal zombie wealth: " << world.get<int>(zombie[2]) << "\n";
+    std::cout << "Super HP    (copied): " << boss.get<int32_t>(SuperZombie::HP, world) << "\n";
+    std::cout << "Super Power (new):    " << boss.get<float>(SuperZombie::Power, world) << "\n";
 
-    std::vector<Atom> super_zombie = world.clone_entity(zombie);
+    regular.free(world);
+    std::cout << "Regular freed. Float count: " << world.size<float>() << "\n";
+    std::cout << "-----------------------------------\n\n";
+}
 
-    world.free_entity(zombie);
+void worldOfWorldsExample() {
+    World universe(10);
 
-    world.get<int>(super_zombie[2]) = 5;
-    std::cout << "Super zombie wealth: " << world.get<int>(super_zombie[2]) << "\n";
-
-    // - Cache friendly way to manage a list of vec3's and ints if they're related -
-    World vecWorld(COUNT);
-
-    for (int i = 0; i < 4; i++) {
-        vecWorld.create_atom<Vec3>(Vec3{ float(1 * i), float(2 * i), float(3 * i) });
-        vecWorld.create_atom<int>(5);
+    // 1. Create and populate a world
+    World nested(100);
+    for (int i = 0; i < 5; i++) {
+        nested.create_atom<int32_t>(100 + i);
     }
 
-    // Iterate and modify Vec3 using get_array pointer + count
-    Vec3* vecs = vecWorld.get_array<Vec3>();
-    size_t vec_count = vecWorld.size<Vec3>();
-    for (size_t i = 0; i < vec_count; i++) {
-        vecs[i].x += 1.0f;
-        vecs[i].y += 2.0f;
-        vecs[i].z += 3.0f;
+    // 2. Wrap and move it directly into the Universe as a ComponentExample
+    universe.create_atom<ComponentExample>({ std::make_unique<World>(std::move(nested)) });
+
+    // 3. Access the data back out
+    World& active = *(universe.get_array<ComponentExample>()[0].data);
+    int32_t* hps = active.get_array<int32_t>();
+
+    for (size_t i = 0; i < active.size<int32_t>(); i++) {
+        std::cout << "Entity " << i << " HP: " << hps[i] << "\n";
     }
-
-    world.free_entity(super_zombie);
-
-    // clear_all Vec3's
-    vecWorld.clear_all<Vec3>();
-
-    // Print remaining Vec3 (should be nothing) - using get_array pointer + count
-    Vec3* remaining_vecs = vecWorld.get_array<Vec3>();
-    size_t remaining_count = vecWorld.size<Vec3>();
-    for (size_t i = 0; i < remaining_count; i++) {
-        std::cout << remaining_vecs[i] << "\n";
-    }
-
-    // This will print ints (still exist) - using get_array pointer + count
-    int* ints = vecWorld.get_array<int>();
-    size_t int_count = vecWorld.size<int>();
-    for (size_t i = 0; i < int_count; i++) {
-        std::cout << ints[i] << "\n";
-    }
-
-    // Print using runtime dispatch
-    //world.print(hp_p);
 }
 
 int main() {
-    //printf("Running benchmarks with %d items, %d runs each\n", ITEMS, RUNS);
-    basicExamples();
-    /*
-    printf("\n=== Steamwand benchmarks ===\n");
-    linear_iteration_v3();
-    query_parallel_v3();
-    multi_component_v3();
-    backwards_query_v3();
-    zombie_v3();
+    //basicExamples();
+    worldOfWorldsExample();
+    //printf("\n=== Steamwand benchmarks ===\n");
+    //steamwand_linear();
+    //steamwand_query_parralel();
+    //steamwand_multi_component();
+    //steamwand_backwards_query();
+    //steamwand_zombie();
 
-    printf("\n=== ARCHETYPE benchmarks ===\n");
-    archetype_linear();
-    archetype_multi();
-    archetype_query_parallel();
-    archetype_backwards_query();
-    archetype_zombie();*/
+    //printf("\n=== ARCHETYPE benchmarks ===\n");
+    //archetype_linear();
+    //archetype_multi();
+    //archetype_query_parallel();
+    //archetype_backwards_query();
+    //archetype_zombie();
 
     return 0;
 }

@@ -6,63 +6,73 @@
 #include <chrono>
 #include <algorithm>
 #include "Dcs.h"
+#include "Benchmarks.h"
 
 #define ITEMS 33000000
 #define RUNS 100
 #define NOW() std::chrono::high_resolution_clock::now()
 #define MS(start, end) std::chrono::duration<double, std::milli>(end - start).count()
 
+#if defined(_MSC_VER)
+#define FORCE_VEC __pragma(loop(ivdep))
+#define RESTRICT __restrict
+#else
+#define FORCE_VEC _Pragma("clang loop vectorize(enable)")
+#define RESTRICT __restrict__
+#endif
+
 static void print_stats(const char* name, double total_time) {
-    printf("%s Total (Setup + %d runs): %.2fms\n", name, RUNS, total_time);
-    printf("%s Avg/Run: %.2fms\n", name, total_time / RUNS);
+    printf("%-30s Total (Setup + %d runs): %.2fms\n", name, RUNS, total_time);
     printf("--------------------------------------\n");
 }
 
-void linear_iteration_v3() {
+void steamwand_linear() {
     auto start = NOW();
     World world(ITEMS);
 
     for (int i = 0; i < ITEMS; i++)
         world.create_atom<float>(float(i));
 
+    float* RESTRICT data = world.get_array<float>();
+    size_t count = world.size<float>();
+
     for (int r = 0; r < RUNS; r++) {
-        float* data = world.get_array<float>();
-        size_t count = world.size<float>();
-        for (size_t i = 0; i < count; i++)
-            data[i] = data[i] * 2.0f + 1.0f;
+        FORCE_VEC
+            for (size_t i = 0; i < count; i++)
+                data[i] = data[i] * 2.0f + 1.0f;
     }
 
-    print_stats("v3 linear: ", MS(start, NOW()));
+    print_stats("Steamwand linear:", MS(start, NOW()));
 }
 
-void query_parallel_v3() {
+void steamwand_query_parralel() {
     auto start = NOW();
-    World world(ITEMS * 2);
+    World world(ITEMS);
 
     for (int i = 0; i < ITEMS; i++) {
         world.create_atom<Vec3>({ float(i), float(i * 2), float(i * 3) });
         world.create_atom<float>(float(i) * 0.5f);
     }
 
+    Vec3* RESTRICT pos = world.get_array<Vec3>();
+    float* RESTRICT spd = world.get_array<float>();
+    size_t n = world.size<Vec3>();
+
     for (int r = 0; r < RUNS; r++) {
-        Vec3* pos = world.get_array<Vec3>();
-        float* spd = world.get_array<float>();
-        size_t pos_count = world.size<Vec3>();
-        size_t spd_count = world.size<float>();
-        size_t n = std::min(pos_count, spd_count);
-        for (size_t i = 0; i < n; i++) {
-            pos[i].x += spd[i];
-            pos[i].y += spd[i];
-            pos[i].z += spd[i];
-        }
+        FORCE_VEC
+            for (size_t i = 0; i < n; i++) {
+                pos[i].x += spd[i];
+                pos[i].y += spd[i];
+                pos[i].z += spd[i];
+            }
     }
 
-    print_stats("v3 query parallel: ", MS(start, NOW()));
+    print_stats("Steamwand query parallel:", MS(start, NOW()));
 }
 
-void multi_component_v3() {
+void steamwand_multi_component() {
     auto start = NOW();
-    World world(ITEMS * 3);
+    World world(ITEMS);
 
     for (int i = 0; i < ITEMS; i++) {
         world.create_atom<Vec3>({ float(i), float(i * 2), float(i * 3) });
@@ -70,55 +80,53 @@ void multi_component_v3() {
         world.create_atom<int32_t>(i);
     }
 
-    Vec3* pos = world.get_array<Vec3>();
-    float* spd = world.get_array<float>();
-    int32_t* hp = world.get_array<int32_t>();
+    Vec3* RESTRICT pos = world.get_array<Vec3>();
+    float* RESTRICT spd = world.get_array<float>();
+    int32_t* RESTRICT hp = world.get_array<int32_t>();
     size_t count = world.size<Vec3>();
 
     for (int r = 0; r < RUNS; r++) {
-        for (size_t i = 0; i < count; i++) {
-            pos[i].x += spd[i];
-            pos[i].y += spd[i];
-            pos[i].z += spd[i];
-            hp[i]--;
-        }
+        FORCE_VEC
+            for (size_t i = 0; i < count; i++) {
+                pos[i].x += spd[i];
+                pos[i].y += spd[i];
+                pos[i].z += spd[i];
+                hp[i]--;
+            }
     }
 
-    print_stats("v3 multi: ", MS(start, NOW()));
+    print_stats("Steamwand multi:", MS(start, NOW()));
 }
 
-void backwards_query_v3() {
+void steamwand_backwards_query() {
     auto start = NOW();
-    World world(ITEMS * 2);
-    uint16_t eid = 0;
+    World world(ITEMS);
 
     for (int i = 0; i < ITEMS; i++) {
-        world.create_atom<Vec3>({ float(i), float(i * 2), float(i * 3) }, eid);
-        if 
-            (i % 2 == 0) world.create_atom<float>(float(i) * 0.5f, eid);
-        else 
-            world.create_atom<bool>(true, eid);
-        eid++;
+        world.create_atom<Vec3>({ float(i), float(i * 2), float(i * 3) });
+        if (i % 2 == 0)
+            world.create_atom<float>(float(i) * 0.5f);
+        else
+            world.create_atom<bool>(true);
     }
+
+    Vec3* RESTRICT pos = world.get_array<Vec3>();
+    float* RESTRICT spd = world.get_array<float>();
+    size_t n = world.size<float>();
 
     for (int r = 0; r < RUNS; r++) {
-        Vec3* pos = world.get_array<Vec3>();
-        float* spd = world.get_array<float>();
-        size_t pos_count = world.size<Vec3>();
-        size_t spd_count = world.size<float>();
-        size_t n = std::min(pos_count, spd_count);
-
-        for (size_t i = 0; i < n; i++) {
-            pos[i].x += spd[i];
-            pos[i].y += spd[i];
-            pos[i].z += spd[i];
-        }
+        FORCE_VEC
+            for (size_t i = 0; i < n; i++) {
+                pos[i].x += spd[i];
+                pos[i].y += spd[i];
+                pos[i].z += spd[i];
+            }
     }
 
-    print_stats("v3 backwards: ", MS(start, NOW()));
+    print_stats("Steamwand backwards:", MS(start, NOW()));
 }
 
-void zombie_v3() {
+void steamwand_zombie() {
     auto start = NOW();
     World zombieWorld(ITEMS);
 
@@ -128,150 +136,149 @@ void zombie_v3() {
         zombieWorld.create_atom<bool>(true);
     }
 
-    int32_t* hp = zombieWorld.get_array<int32_t>();
-    float* dmg = zombieWorld.get_array<float>();
-    size_t count = zombieWorld.size<float>();
-
     for (int r = 0; r < RUNS; r++) {
+        int32_t* RESTRICT hp = zombieWorld.get_array<int32_t>();
+        float* RESTRICT dmg = zombieWorld.get_array<float>();
+        size_t count = zombieWorld.size<int32_t>();
+
+        FORCE_VEC
+            for (size_t i = 0; i < count; i++) {
+                hp[i]--;
+                dmg[i] *= 0.99f;
+            }
+
         for (size_t i = 0; i < count; i++) {
-            hp[i]--;
-            dmg[i] *= 0.99f;
+            if (hp[i] <= 0) {
+                zombieWorld.queue_free((uint32_t)i);
+            }
         }
     }
 
-    print_stats("v3 zombie: ", MS(start, NOW()));
+    print_stats("Steamwand zombie:", MS(start, NOW()));
 }
 
 void archetype_linear() {
     auto start = NOW();
-    std::vector<float> data;
-    data.reserve(ITEMS);
+    std::vector<float> data(ITEMS);
 
     for (int i = 0; i < ITEMS; i++)
-        data.push_back(float(i));
+        data[i] = float(i);
 
     for (int r = 0; r < RUNS; r++) {
-        for (size_t i = 0; i < data.size(); i++)
-            data[i] = data[i] * 2.0f + 1.0f;
+        float* RESTRICT raw = data.data();
+        size_t n = data.size();
+        FORCE_VEC
+            for (size_t i = 0; i < n; i++)
+                raw[i] = raw[i] * 2.0f + 1.0f;
     }
 
-    print_stats("vector linear: ", MS(start, NOW()));
+    print_stats("vector linear:", MS(start, NOW()));
 }
 
 void archetype_query_parallel() {
     auto start = NOW();
-    std::vector<float> px, py, pz, speed;
-    px.reserve(ITEMS);
-    py.reserve(ITEMS);
-    pz.reserve(ITEMS);
-    speed.reserve(ITEMS);
+    std::vector<Vec3> pos(ITEMS);
+    std::vector<float> speed(ITEMS);
 
     for (int i = 0; i < ITEMS; i++) {
-        px.push_back(float(i));
-        py.push_back(float(i * 2));
-        pz.push_back(float(i * 3));
-        speed.push_back(float(i) * 0.5f);
+        pos[i] = { float(i), float(i * 2), float(i * 3) };
+        speed[i] = float(i) * 0.5f;
     }
 
     for (int r = 0; r < RUNS; r++) {
-        for (size_t i = 0; i < px.size(); i++) {
-            px[i] += speed[i];
-            py[i] += speed[i];
-            pz[i] += speed[i];
-        }
+        Vec3* RESTRICT p = pos.data();
+        float* RESTRICT s = speed.data();
+        FORCE_VEC
+            for (size_t i = 0; i < ITEMS; i++) {
+                p[i].x += s[i];
+                p[i].y += s[i];
+                p[i].z += s[i];
+            }
     }
 
-    print_stats("archetype query parallel: ", MS(start, NOW()));
+    print_stats("archetype query parallel:", MS(start, NOW()));
 }
 
 void archetype_multi() {
     auto start = NOW();
-    std::vector<Vec3> pos;
-    std::vector<float> speed;
-    std::vector<int> health;
-
-    pos.reserve(ITEMS);
-    speed.reserve(ITEMS);
-    health.reserve(ITEMS);
+    std::vector<Vec3> pos(ITEMS);
+    std::vector<float> speed(ITEMS);
+    std::vector<int32_t> health(ITEMS);
 
     for (int i = 0; i < ITEMS; i++) {
-        pos.push_back({ float(i), float(i * 2), float(i * 3) });
-        speed.push_back(float(i) * 0.5f);
-        health.push_back(i);
+        pos[i] = { float(i), float(i * 2), float(i * 3) };
+        speed[i] = float(i) * 0.5f;
+        health[i] = i;
     }
 
     for (int r = 0; r < RUNS; r++) {
-        for (int i = 0; i < ITEMS; i++) {
-            pos[i].x += speed[i];
-            pos[i].y += speed[i];
-            pos[i].z += speed[i];
-            health[i]--;
-        }
+        Vec3* RESTRICT p = pos.data();
+        float* RESTRICT s = speed.data();
+        int32_t* RESTRICT h = health.data();
+        FORCE_VEC
+            for (int i = 0; i < ITEMS; i++) {
+                p[i].x += s[i];
+                p[i].y += s[i];
+                p[i].z += s[i];
+                h[i]--;
+            }
     }
 
-    print_stats("archetype multi: ", MS(start, NOW()));
+    print_stats("archetype multi:", MS(start, NOW()));
 }
 
 void archetype_backwards_query() {
     auto start = NOW();
-    std::vector<float> ps_px, ps_py, ps_pz, ps_speed;
-    std::vector<float> po_px, po_py, po_pz;
+    std::vector<Vec3> ps_pos(ITEMS / 2);
+    std::vector<float> ps_speed(ITEMS / 2);
+    std::vector<Vec3> po_pos(ITEMS / 2);
 
-    ps_px.reserve(ITEMS / 2);
-    ps_py.reserve(ITEMS / 2);
-    ps_pz.reserve(ITEMS / 2);
-    ps_speed.reserve(ITEMS / 2);
-    po_px.reserve(ITEMS / 2);
-    po_py.reserve(ITEMS / 2);
-    po_pz.reserve(ITEMS / 2);
-
-    for (int i = 0; i < ITEMS; i++) {
-        if (i % 2 == 0) {
-            ps_px.push_back(float(i));
-            ps_py.push_back(float(i * 2));
-            ps_pz.push_back(float(i * 3));
-            ps_speed.push_back(float(i) * 0.5f);
-        }
-        else {
-            po_px.push_back(float(i));
-            po_py.push_back(float(i * 2));
-            po_pz.push_back(float(i * 3));
-        }
+    for (int i = 0; i < ITEMS / 2; i++) {
+        ps_pos[i] = { float(i), float(i * 2), float(i * 3) };
+        ps_speed[i] = float(i) * 0.5f;
+        po_pos[i] = { float(i), float(i * 2), float(i * 3) };
     }
 
     for (int r = 0; r < RUNS; r++) {
-        for (size_t i = 0; i < ps_px.size(); i++) {
-            ps_px[i] += ps_speed[i];
-            ps_py[i] += ps_speed[i];
-            ps_pz[i] += ps_speed[i];
-        }
+        Vec3* RESTRICT p = ps_pos.data();
+        float* RESTRICT s = ps_speed.data();
+        size_t n = ps_pos.size();
+        FORCE_VEC
+            for (size_t i = 0; i < n; i++) {
+                p[i].x += s[i];
+                p[i].y += s[i];
+                p[i].z += s[i];
+            }
     }
 
-    print_stats("archetype backwards: ", MS(start, NOW()));
+    print_stats("archetype backwards:", MS(start, NOW()));
 }
 
 void archetype_zombie() {
     auto start = NOW();
-    std::vector<int> health;
-    std::vector<float> damage;
-    std::vector<uint8_t> alive;
-
-    health.reserve(ITEMS);
-    damage.reserve(ITEMS);
-    alive.reserve(ITEMS);
-
-    for (int i = 0; i < ITEMS; i++) {
-        health.push_back(100);
-        damage.push_back(10.0f);
-        alive.push_back(1);
-    }
+    std::vector<int32_t> health(ITEMS, 100);
+    std::vector<float> damage(ITEMS, 10.0f);
+    std::vector<bool> active(ITEMS, true);
+    std::vector<uint32_t> free_queue;
+    free_queue.reserve(ITEMS);
 
     for (int r = 0; r < RUNS; r++) {
+        int32_t* RESTRICT h = health.data();
+        float* RESTRICT d = damage.data();
+
+        FORCE_VEC
+            for (int i = 0; i < ITEMS; i++) {
+                h[i]--;
+                d[i] *= 0.99f;
+            }
+
         for (int i = 0; i < ITEMS; i++) {
-            health[i]--;
-            damage[i] *= 0.99f;
+            if (h[i] <= 0) {
+                free_queue.push_back((uint32_t)i);
+            }
         }
+        free_queue.clear();
     }
 
-    print_stats("archetype zombie: ", MS(start, NOW()));
+    print_stats("archetype zombie:", MS(start, NOW()));
 }
