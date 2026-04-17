@@ -21,68 +21,26 @@ SteamWand centers around a small set of building blocks:
 - `World`: owns type slabs, tracks storage, and handles deferred cleanup.
 - `Slab<T>`: per-type storage with aligned allocation and metadata.
 - `Atom`: a lightweight generational reference with `id` and `gen`.
-
----
-
-## Data Types
-
-The built-in example types are:
-
-```cpp
-struct Vec2 { float x, y; };
-struct Vec3 { float x, y, z; };
-```
-
-Optional stream output helpers are included for nicer debug printing:
-
-```cpp
-inline std::ostream& operator<<(std::ostream& os, const Vec2& v) {
-    return os << "Vec2(" << v.x << ", " << v.y << ")";
-}
-
-inline std::ostream& operator<<(std::ostream& os, const Vec3& v) {
-    return os << "Vec3(" << v.x << ", " << v.y << ", " << v.z << ")";
-}
-```
-
----
-
-## Dynamic Type System
-
-```cpp
-// Any C++ type works instantly but limited to one type per world due to limitations of type uniqueness.
-world.add<int32_t>(42);
-world.add<float>(3.14f);
-world.add<Vec3>({1.0f, 2.0f, 3.0f});
-
-// Custom types work without any setup
-struct PlayerData { int level; float speed; };
-world.add<PlayerData>({10, 5.5f});
-```
+- `View<Types...>`: multi-slab query system for type-safe iteration.
 
 ---
 
 ## Creating Atoms
 
-Values are created through `World::add<T>()`. Returns an `Atom` with id and generation:
+`World::add<T>()` returns an `Atom` with id and generation:
 
 ```cpp
 World world(1024);
 
 Atom intAtom = world.add<int32_t>(42);
-Atom floatAtom = world.add<float>(3.14f);
-Atom vecAtom = world.add<Vec3>({1.0f, 2.0f, 3.0f});
-
-// Custom types - zero configuration
-struct PlayerData { int level; };
-Atom playerAtom = world.add<PlayerData>({10});
+Atom playerAtom = world.add<PlayerData>({10, 5.5f});
 ```
 
 ---
 
 ## Safe Atom Access
 
-Atoms resolve to live data with `World::get<T>()`:
+`World::get<T>()` resolves atoms safely:
 
 ```cpp
 int32_t* value = world.get<int32_t>(intAtom);
@@ -91,28 +49,41 @@ if (value) {
 }
 ```
 
-Returns `nullptr` if atom is stale, deleted, or generation mismatch.
+Returns `nullptr` for stale/deleted atoms.
 
 ---
 
 ## Direct Slab Access
 
-Bulk iteration bypasses atom lookup for maximum speed:
+Fast bulk iteration for systems:
 
 ```cpp
 int32_t* ints = world.get_array<int32_t>();
-size_t count = world.size<int32_t>();
-
-for (size_t i = 0; i < count; ++i) {
+for (size_t i = 0; i < world.size<int32_t>(); ++i) {
     ints[i] += 10;
 }
 ```
 
 ---
 
-## Ownership Lookup
+## Multi-Type Queries with `View`
 
-Each atom tracks its owning world for reverse lookup:
+`World::view<Types...>()` creates type-safe multi-slab iterators:
+
+```cpp
+// Example: Zombies with HP, Speed, Position
+auto full_zombie_view = world.view<int32_t, float, Vec3>();
+full_zombie_view.each([](int32_t& hp, float& speed, Vec3& pos) {
+    if (hp > 0) {
+        pos.x += speed * 0.016f;  // Move forward
+        hp -= 1;
+    }
+});
+```
+
+---
+
+## Reverse lookup:
 
 ```cpp
 int32_t* ints = world.get_array<int32_t>();
@@ -126,100 +97,76 @@ for (size_t i = 0; i < world.size<int32_t>(); ++i) {
 
 ## World of Worlds
 
-**Native hierarchical composition** - store worlds as atoms:
+Store worlds as atoms for hierarchy (Similar to Godot scenes):
 
 ```cpp
 World universe(10);
 World nested(100);
-
-for (int i = 0; i < 5; i++) {
-    nested.add<int32_t>(100 + i);
-}
+nested.add<int32_t>(100);
 
 Atom nestedAtom = universe.add<World>(std::move(nested));
 World* active = universe.get<World>(nestedAtom);
-
-if (active) {
-    int32_t* hps = active->get_array<int32_t>();
-    for (size_t i = 0; i < active->size<int32_t>(); i++) {
-        std::cout << "Nested HP: " << hps[i] << "\n";
-    }
-}
 ```
 
 ---
 
 ## Generational Atoms
 
-**Stale reference protection** via generation counters:
+Prevents stale references:
 
 ```cpp
 Atom a = world.add<int32_t>(42);
-int32_t* value = world.get<int32_t>(a);  // Works
+world.get<int32_t>(a);  // Works
 
 world.queue_free(0);
 world.cleanup();
-int32_t* expired = world.get<int32_t>(a);  // nullptr
+world.get<int32_t>(a);  // now a nullptr
 ```
 
 ---
 
 ## Cleanup Model
 
-Deferred deletion keeps it simple and explicit:
-
 ```cpp
-world.queue_free(0);  // Mark index for removal
-world.cleanup();      // Invalidate across all slabs
+world.queue_free(0);
+world.cleanup();  // Explicit deferred cleanup 
 ```
-
-Uses generation marking (no compaction/swap-and-pop).
 
 ---
 
 ## Example Usage
 
+### Views in action
+
+```cpp
+void zombie_system(World& world) {
+    // Process all zombies (HP + Position + Speed)
+    auto zombie_view = world.view<int32_t, Vec3, float>();
+    
+    zombie_view.each([](int32_t& hp, Vec3& pos, float& speed) {
+        if (hp > 0) {
+            pos.x += speed * 0.016f;
+            hp -= 1;
+        }
+    });
+}
+```
+
 ### Zero-config custom types
 
 ```cpp
 void basicExamples() {
-    std::cout << "--- Basic SteamWand Examples ---\n";
     World world(1024);
-
-    // Built-in + custom types - all work identically
-    Atom intAtom = world.add<int32_t>(42);
-    world.add<float>(3.14f);
-    world.add<Vec3>({1.0f, 2.0f, 3.0f});
     
     struct PlayerData { int level; float speed; };
     world.add<PlayerData>({10, 5.5f});
-
-    // Safe access
-    int32_t* val = world.get<int32_t>(intAtom);
-    if (val) std::cout << "Player level: " << *val << "\n";
-
-    // Test invalidation
-    world.queue_free(0);
-    world.cleanup();
-    if (!world.get<int32_t>(intAtom)) {
-        std::cout << "Atom safely invalidated ✓\n";
-    }
-}
-```
-
-### Multiple independent worlds
-
-```cpp
-void multipleWorldsExample() {
-    World overworld(1024), nether(1024);
-    overworld.add<int32_t>(10);
-    nether.add<int32_t>(666);
-
-    World multiverse(10);
-    multiverse.add<World>(std::move(overworld));
-    multiverse.add<World>(std::move(nether));
     
-    std::cout << "Multiverse manages 2 worlds\n";
+    // View across custom + built-in types
+    auto players_view = world.view<PlayerData, int32_t>();
+    players_view.each([](PlayerData& pd, int32_t& score) {
+        pd.speed += 0.1f;
+        score += pd.level;
+    });
 }
 ```
 
@@ -227,9 +174,9 @@ void multipleWorldsExample() {
 
 ## Current Characteristics
 
-- **Dynamic typing**: Any C++ type works instantly via `TypeInfo<T>::id()`
-- **No compaction**: Uses generation marking (sparse over time)
-- **Deferred cleanup**: Explicit `queue_free()` + `cleanup()`
+- **Dynamic typing**: Any C++ type via `TypeInfo<T>::id()`
+- **Multi-type views**: `view<Types...>()` for queries
+- **Generation marking**: No compaction, sparse over time
 - **Zero boilerplate**: No macros, no registration
 
 ---
@@ -237,8 +184,7 @@ void multipleWorldsExample() {
 ## Planned Features
 
 - Non-disruptive defragmentation
-- Multi-threaded access with coroutines
-- Dynamic multi-type queries
+- Multi-threaded views with coroutines
 - Serialization
 
 ---
