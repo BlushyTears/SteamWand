@@ -1,7 +1,7 @@
 #pragma once
 
 void steamwand_linear();
-void steamwand_query_parralel();
+void steamwand_query_parallel();
 void steamwand_multi_component();
 void steamwand_backwards_query();
 void steamwand_zombie();

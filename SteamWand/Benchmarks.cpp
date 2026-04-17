@@ -11,12 +11,10 @@
 #define NOW() std::chrono::high_resolution_clock::now()
 #define MS(start, end) std::chrono::duration<double, std::milli>(end - start).count()
 
+// Enforce vectorization for Steamwand because the compiler automatically will vectorize archetype either way
 #if defined(_MSC_VER)
 #define FORCE_VEC __pragma(loop(ivdep))
 #define RESTRICT __restrict
-#else
-#define FORCE_VEC _Pragma("clang loop vectorize(enable)")
-#define RESTRICT __restrict__
 #endif
 
 static void print_stats(const char* name, double total_time) {
@@ -40,27 +38,32 @@ void steamwand_linear() {
     print_stats("Steamwand linear:", MS(start, NOW()));
 }
 
-void steamwand_query_parralel() {
+void steamwand_query_parallel() {
     auto start = NOW();
     World world(ITEMS);
+
     for (int i = 0; i < ITEMS; i++) {
-        world.add<Vec3>({ float(i), float(i * 2), float(i * 3) });
-        world.add<float>(float(i) * 0.5f);
+        world.add<Vec3>({ float(i), 0, 0 });
+    }
+    for (int i = 0; i < ITEMS / 2; i++) {
+        world.add<float>(1.0f);
     }
 
-    Vec3* RESTRICT pos = world.get_array<Vec3>();
-    float* RESTRICT spd = world.get_array<float>();
-    size_t n = world.size<Vec3>();
+    auto v = world.view<Vec3, float>();
+    uint32_t limit = v.get_min_idx();
+
+    auto* pos_slab = v.get_slab<Vec3>();
+    auto* spd_slab = v.get_slab<float>();
 
     for (int r = 0; r < RUNS; r++) {
-        FORCE_VEC
-            for (size_t i = 0; i < n; i++) {
-                pos[i].x += spd[i];
-                pos[i].y += spd[i];
-                pos[i].z += spd[i];
+        for (int i = 0; i < (int)limit; i++) {
+            if ((pos_slab->gens[i] & 1) && (spd_slab->gens[i] & 1)) {
+                pos_slab->data[i].x += spd_slab->data[i];
             }
+        }
     }
-    print_stats("Steamwand query parallel:", MS(start, NOW()));
+
+    print_stats("Steamwand parallel (unaligned):", MS(start, NOW()));
 }
 
 void steamwand_multi_component() {
@@ -153,23 +156,33 @@ void archetype_linear() {
 }
 
 void archetype_query_parallel() {
-    auto start = NOW();
     std::vector<Vec3> pos(ITEMS);
     std::vector<float> speed(ITEMS);
+    std::vector<uint8_t> alive(ITEMS, 0);
+
     for (int i = 0; i < ITEMS; i++) {
-        pos[i] = { float(i), float(i * 2), float(i * 3) };
-        speed[i] = float(i) * 0.5f;
+        pos[i] = { float(i), 0, 0 };
+        if (i < ITEMS / 2) {
+            speed[i] = 1.0f;
+            alive[i] = 1;
+        }
     }
 
+    auto start = NOW();
     for (int r = 0; r < RUNS; r++) {
         Vec3* RESTRICT p = pos.data();
         float* RESTRICT s = speed.data();
-        FORCE_VEC
-            for (size_t i = 0; i < ITEMS; i++) {
-                p[i].x += s[i]; p[i].y += s[i]; p[i].z += s[i];
+        uint8_t* RESTRICT a = alive.data();
+
+#pragma omp parallel for
+        for (int i = 0; i < (int)(ITEMS / 2); i++) {
+            // The Archetype version pays small validation a small tax
+            if (a[i]) {
+                p[i].x += s[i];
             }
+        }
     }
-    print_stats("archetype query parallel:", MS(start, NOW()));
+    print_stats("Archetype parallel (unaligned):", MS(start, NOW()));
 }
 
 void archetype_multi() {

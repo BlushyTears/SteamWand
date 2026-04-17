@@ -8,6 +8,7 @@
 #include <malloc.h>
 #include <cstring>
 #include <algorithm>
+#include <tuple>
 
 struct Vec2 { float x, y; };
 struct Vec3 { float x, y, z; };
@@ -123,6 +124,46 @@ struct Slab : public ISlab {
     }
 };
 
+template <typename... Types>
+struct View {
+    std::tuple<Slab<Types>*...> slabs;
+    View(Slab<Types>*... slabs) : slabs(slabs...) {}
+
+    template <typename T>
+    Slab<T>* get_slab() {
+        return std::get<Slab<T>*>(slabs);
+    }
+
+    bool slot_is_alive(uint32_t i) {
+        auto check_alive = [&](auto*... s) {
+            return ((s->gens[i] % 2 != 0) && ...);
+            };
+        return std::apply(check_alive, slabs);
+    }
+
+    uint32_t get_min_idx() const {
+        auto find_min = [](auto*... s) {
+            uint32_t m = std::min({ s->next_idx... });
+            return (m == std::numeric_limits<uint32_t>::max()) ? 0 : m;
+            };
+        return std::apply(find_min, slabs);
+    }
+
+    template <typename Func>
+    void each(Func func) {
+        if constexpr (sizeof...(Types) == 0) 
+            return;
+
+        const uint32_t count = get_min_idx();
+
+        for (uint32_t i = 0; i < count; ++i) {
+            if (slot_is_alive(i)) {
+                func(get_slab<Types>()->data[i]...);
+            }
+        }
+    }
+};
+
 struct World {
     uint32_t cap;
     std::vector<ISlab*> registry;
@@ -202,5 +243,10 @@ struct World {
             }
         }
         death_row.clear();
+    }
+
+    template<typename... Types>
+    View<Types...> view() {
+        return View<Types...>(&get_slab<Types>()...);
     }
 };
