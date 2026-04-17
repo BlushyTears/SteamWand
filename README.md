@@ -207,7 +207,7 @@ World& active = *(universe.get_array<ComponentExample>().data);
 int32_t* hps = active.get_array<int32_t>();
 ```
 
-This is useful when you want world-level composition instead of a single global simulation space.
+This is useful when you want to compose larger worlds with each other.
 
 ---
 
