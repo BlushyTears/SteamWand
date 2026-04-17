@@ -25,13 +25,13 @@ static void print_stats(const char* name, double total_time) {
 }
 
 void steamwand_linear() {
-    auto start = NOW();
     World world(ITEMS);
     for (int i = 0; i < ITEMS; i++) world.add<float>(float(i));
 
     float* RESTRICT data = world.get_array<float>();
     size_t count = world.size<float>();
 
+    auto start = NOW();
     for (int r = 0; r < RUNS; r++) {
         FORCE_VEC
             for (size_t i = 0; i < count; i++)
