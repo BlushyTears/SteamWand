@@ -72,7 +72,7 @@ Available atom types are declared through `ATOM_TYPES` and assigned fixed type i
 
 ## Creating Atoms
 
-Values are created through `World::add<T>()`. In this version of SteamWand, `add()` returns an `Atom` that includes both the id and generation.
+Values are created through `World::add<T>()`. `add()` returns an `Atom` that includes both the id and generation.
 
 ```cpp
 World world(1024);
@@ -88,8 +88,6 @@ You can also move values into storage when the type supports it:
 World nested(100);
 Atom nestedAtom = world.add<World>(std::move(nested));
 ```
-
-This makes nested-world composition a native pattern rather than a special case.
 
 ---
 
@@ -113,11 +111,6 @@ If the atom is stale, deleted, or no longer matches the current generation, `get
 When you want bulk iteration, you can bypass atom lookup and work directly on the underlying contiguous array.
 
 ```cpp
-World world(1024);
-world.add<int32_t>(100);
-world.add<int32_t>(200);
-world.add<int32_t>(300);
-
 int32_t* hps = world.get_array<int32_t>();
 size_t count = world.size<int32_t>();
 
@@ -126,7 +119,7 @@ for (size_t i = 0; i < count; ++i) {
 }
 ```
 
-This is the fastest way to walk a type’s storage when you control the layout.
+This is the fastest way to walk a type's storage when you control the layout.
 
 ---
 
@@ -135,20 +128,13 @@ This is the fastest way to walk a type’s storage when you control the layout.
 Each stored value keeps metadata for its owning world. This is useful for reverse lookup, debugging, and nested-world workflows.
 
 ```cpp
-World* z1 = new World(1);
+int32_t* hps = world.get_array<int32_t>();
 
-z1->add<int32_t>(100);
-z1->add<int32_t>(200);
-
-int32_t* hps = z1->get_array<int32_t>();
-
-for (uint32_t i = 0; i < (uint32_t)z1->size<int32_t>(); ++i) {
-    World* owner = z1->get_world_at<int32_t>(i);
+for (uint32_t i = 0; i < (uint32_t)world.size<int32_t>(); ++i) {
+    World* owner = world.get_world_at<int32_t>(i);
     std::cout << "Index " << i << " HP: " << hps[i] << " owned by World: " << owner << "\n";
 }
 ```
-
-This is the current equivalent of reverse lookup: atom data knows its owning `World`.
 
 ---
 
@@ -176,41 +162,33 @@ if (active) {
 }
 ```
 
-This pattern is especially useful if you want a world to act as an atom inside another world.
-
 ---
 
 ## Cleanup Model
 
-Removal is deferred. You queue indices for deletion, then compact all slabs in one pass with `cleanup()`.
+Removal is deferred. You queue indices for deletion, then mark them invalid with `cleanup()`.
 
 ```cpp
-World world(1024);
-world.add<int32_t>(42);
-world.add<float>(3.14f);
-
 world.queue_free(0);
 world.cleanup();
 ```
 
-The cleanup pass uses `swap_and_pop`, which keeps slab storage contiguous and makes iteration cache-friendly.
+The cleanup pass marks slots as invalid via generation counters, keeping storage contiguous.
 
 ---
 
 ## Generational Atoms
 
-SteamWand uses generational atoms to reduce stale references. When an item is removed, its generation changes, and old atoms no longer resolve.
-
-That means an atom can survive code flow, but only remains valid if the underlying object is still the same live allocation. This is especially useful when cleanup reorders dense storage.
+SteamWand uses generational atoms to prevent stale references. When an item is removed, its generation changes, and old atoms no longer resolve.
 
 ```cpp
 Atom a = world.add<int32_t>(42);
-int32_t* value = world.get<int32_t>(a);
+int32_t* value = world.get<int32_t>(a);  // Works
 
 world.queue_free(0);
 world.cleanup();
 
-int32_t* expired = world.get<int32_t>(a); // nullptr if invalidated
+int32_t* expired = world.get<int32_t>(a);  // nullptr - invalidated
 ```
 
 ---
@@ -247,32 +225,11 @@ void basicExamples() {
 }
 ```
 
-### Reverse lookup
-
-```cpp
-void reverseLookupExample() {
-    std::cout << "--- Reverse Lookup Example ---\n";
-    World* z1 = new World(1);
-
-    z1->add<int32_t>(100);
-    z1->add<int32_t>(200);
-
-    int32_t* hps = z1->get_array<int32_t>();
-
-    for (uint32_t i = 0; i < (uint32_t)z1->size<int32_t>(); ++i) {
-        World* owner = z1->get_world_at<int32_t>(i);
-        std::cout << "Index " << i << " HP: " << hps[i] << " owned by World: " << owner << "\n";
-    }
-
-    delete z1;
-}
-```
-
 ### Nested world
 
 ```cpp
 void worldOfWorldsExample() {
-    std::cout << "--- World of Worlds Example (Refactored) ---\n";
+    std::cout << "--- World of Worlds Example ---\n";
     World universe(10);
 
     World nested(100);
@@ -295,50 +252,23 @@ void worldOfWorldsExample() {
 
 ---
 
-## Benchmarks
-
-The repository also includes benchmark entry points for performance testing.
-
-```cpp
-printf("\n=== Steamwand benchmarks ===\n");
-steamwand_linear();
-steamwand_query_parralel();
-steamwand_multi_component();
-steamwand_backwards_query();
-steamwand_zombie();
-
-archetype_linear();
-archetype_query_parallel();
-archetype_multi();
-archetype_backwards_query();
-archetype_zombie();
-```
-
-These are useful for comparing SteamWand’s slab-based design against archetype-based approaches.
-
----
-
 ## Current Limitations
 
-- `queue_free(index)` removes by slab index, so it is best used with care when multiple slabs share the same index layout.
-- Ownership metadata is stored per slab entry, not per logical entity abstraction.
-- `World` currently acts as both a container and a storable type, which is powerful but intentionally low-level.
-- Atom validity depends on generation matching, so stale references fail safely instead of pointing at moved data.
-- The current code favors direct runtime storage over a higher-level ECS component graph.
+- `queue_free(index)` removes by array index (not handle id).
+- No compaction/swap-and-pop (yet) - uses generation marking instead.
+- `World` acts as both container and storable type.
+- Atom validity depends on generation matching.
 
 ---
 
 ## Planned Features
 
-- Safer entity abstraction on top of world-owned slabs.
-- Runtime add/remove of components.
-- Better reverse lookup from stored data to higher-level identifiers.
-- Active-slot iteration that skips freed entries.
-- Multi-threaded slab iteration.
-- Coroutine-friendly task systems.
-- Serialization utilities.
-- Scripting integration.
-- Dynamic queries across multiple atom types.
+- Compaction with swap-and-pop.
+- Entity abstraction layer.
+- Active-slot iteration.
+- Multi-threaded access.
+- Dynamic queries.
+- Serialization.
 
 ---
 

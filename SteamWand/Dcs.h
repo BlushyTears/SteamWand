@@ -10,13 +10,13 @@
 #include <cstring>
 #include <algorithm>
 
-// Custom datatypes
-struct Vec2 { float x, y; };
-struct Vec3 { float x, y, z; };
+struct Vec2 {
+    float x, y;
+};
 
-// Optional and nice to customize your prints, but not necessary
-inline std::ostream& operator<<(std::ostream& os, const Vec2& v) { return os << "Vec2(" << v.x << ", " << v.y << ")"; }
-inline std::ostream& operator<<(std::ostream& os, const Vec3& v) { return os << "Vec3(" << v.x << ", " << v.y << ", " << v.z << ")"; }
+struct Vec3 {
+    float x, y, z;
+};
 
 struct World;
 
@@ -24,10 +24,11 @@ struct Atom {
     uint32_t id;
     uint32_t gen;
 
-    bool is_valid() const { 
+    bool is_valid() const {
         return id != 0xFFFFFFFF;
     }
-    static Atom invalid() { 
+
+    static Atom invalid() {
         return { 0xFFFFFFFF, 0 };
     }
 };
@@ -63,187 +64,152 @@ struct ISlab {
     virtual ~ISlab() = default;
     virtual void clear_all() = 0;
     virtual size_t count() const = 0;
-    virtual void swap_and_pop(uint32_t index) = 0;
+    virtual void remove_at(uint32_t index) = 0;
     virtual World* get_world(uint32_t index) const = 0;
 };
 
 template<typename T>
 struct Slab : public ISlab {
     struct Meta {
-        World* owner_world;
+        void* owner;
         uint32_t gen;
-        uint32_t handle_id;
     };
 
     T* data;
     Meta* meta;
-    uint32_t* sparse_map;
-    uint32_t* gen_map;
+    uint32_t* gens;
 
     uint32_t cap;
-    uint32_t live_count;
-    uint32_t next_handle_id;
+    uint32_t next_idx;
 
-    Slab(uint32_t capacity) : cap(capacity), live_count(0), next_handle_id(0) {
+    Slab(uint32_t capacity) : cap(capacity), next_idx(0) {
         data = (T*)_aligned_malloc(cap * sizeof(T), 64);
         meta = (Meta*)_aligned_malloc(cap * sizeof(Meta), 64);
-        sparse_map = (uint32_t*)_aligned_malloc(cap * sizeof(uint32_t), 64);
-        gen_map = (uint32_t*)_aligned_malloc(cap * sizeof(uint32_t), 64);
+        gens = (uint32_t*)_aligned_malloc(cap * sizeof(uint32_t), 64);
 
-        if (meta)
-            memset(meta, 0, cap * sizeof(Meta));
-        if (gen_map)
-            memset(gen_map, 0, cap * sizeof(uint32_t));
-        if (sparse_map)
-            memset(sparse_map, 0xFF, cap * sizeof(uint32_t));
+        memset(gens, 0, cap * sizeof(uint32_t));
     }
 
     ~Slab() {
-        for (uint32_t i = 0; i < live_count; ++i) {
-            data[i].~T();
+        for (uint32_t i = 0; i < next_idx; ++i) {
+            if (gens[i] % 2 != 0) {
+                data[i].~T();
+            }
         }
         _aligned_free(data);
         _aligned_free(meta);
-        _aligned_free(sparse_map);
-        _aligned_free(gen_map);
+        _aligned_free(gens);
     }
 
     Atom create(T&& val, World* owner) {
-        uint32_t dense_idx = live_count++;
-        uint32_t h_id = next_handle_id++;
+        uint32_t idx = next_idx++;
 
-        new (&data[dense_idx]) T(std::move(val));
+        new (&data[idx]) T(std::move(val));
 
-        gen_map[h_id]++;
-        sparse_map[h_id] = dense_idx;
+        gens[idx] = (gens[idx] + 1) | 1;
+        meta[idx].owner = (void*)owner;
+        meta[idx].gen = gens[idx];
 
-        meta[dense_idx].owner_world = owner;
-        meta[dense_idx].gen = gen_map[h_id];
-        meta[dense_idx].handle_id = h_id;
-
-        return { 
-            h_id, gen_map[h_id]
-        };
+        return { idx, gens[idx] };
     }
 
-    void swap_and_pop(uint32_t dense_index) override {
-        uint32_t last_dense_idx = --live_count;
-
-        uint32_t deleted_handle_id = meta[dense_index].handle_id;
-        gen_map[deleted_handle_id]++;
-        sparse_map[deleted_handle_id] = 0xFFFFFFFF;
-
-        if (dense_index != last_dense_idx) {
-            if constexpr (std::is_move_assignable_v<T>) {
-                data[dense_index] = std::move(data[last_dense_idx]);
-            }
-            else {
-                data[dense_index].~T();
-                new (&data[dense_index]) T(std::move(data[last_dense_idx]));
-            }
-
-            uint32_t moved_handle_id = meta[last_dense_idx].handle_id;
-            sparse_map[moved_handle_id] = dense_index;
-
-            meta[dense_index] = meta[last_dense_idx];
-        }
-        else {
-            data[dense_index].~T();
+    void remove_at(uint32_t index) override {
+        if (index < next_idx && (gens[index] % 2 != 0)) {
+            data[index].~T();
+            gens[index]++;
         }
     }
 
     T* resolve(Atom h) {
-        if (h.id >= next_handle_id || gen_map[h.id] != h.gen) 
+        if (h.id >= next_idx || gens[h.id] != h.gen) {
             return nullptr;
-
-        uint32_t dense_idx = sparse_map[h.id];
-        return (dense_idx == 0xFFFFFFFF) ? nullptr : &data[dense_idx];
+        }
+        return &data[h.id];
     }
 
-    World* get_world(uint32_t index) const override { 
-        return meta[index].owner_world;
+    World* get_world(uint32_t index) const override {
+        return (World*)meta[index].owner;
     }
-    size_t count() const override { 
-        return (size_t)live_count;
+
+    size_t count() const override {
+        return (size_t)next_idx;
     }
 
     void clear_all() override {
-        for (uint32_t i = 0; i < live_count; ++i) data[i].~T();
-        live_count = 0;
-        next_handle_id = 0;
-        memset(gen_map, 0, cap * sizeof(uint32_t));
-        memset(sparse_map, 0xFF, cap * sizeof(uint32_t));
+        for (uint32_t i = 0; i < next_idx; ++i) {
+            if (gens[i] % 2 != 0) {
+                data[i].~T();
+            }
+        }
+        next_idx = 0;
+        memset(gens, 0, cap * sizeof(uint32_t));
     }
 };
 
 struct World {
-    uint32_t default_cap;
+    uint32_t cap;
     std::array<ISlab*, 256> registry{};
-    std::vector<std::unique_ptr<ISlab>> owned_storage;
+    std::vector<std::unique_ptr<ISlab>> storage;
     std::vector<uint32_t> death_row;
 
-    World(uint32_t capacity = 1024) : default_cap(capacity) {
+    World(uint32_t capacity = 1024) : cap(capacity) {
         registry.fill(nullptr);
     }
 
-    World(World&& other) noexcept
-        : default_cap(other.default_cap),
-        registry(other.registry),
-        owned_storage(std::move(other.owned_storage)),
-        death_row(std::move(other.death_row)) {
+    World(World&& other) noexcept : cap(other.cap) {
+        registry = other.registry;
+        storage = std::move(other.storage);
+        death_row = std::move(other.death_row);
         other.registry.fill(nullptr);
     }
 
     World& operator=(World&& other) noexcept {
         if (this != &other) {
-            owned_storage.clear();
-            default_cap = other.default_cap;
+            storage.clear();
+            cap = other.cap;
             registry = other.registry;
-            owned_storage = std::move(other.owned_storage);
+            storage = std::move(other.storage);
             death_row = std::move(other.death_row);
             other.registry.fill(nullptr);
         }
         return *this;
     }
 
-    World(const World&) = delete;
-    World& operator=(const World&) = delete;
-
     template<typename T>
-    Slab<T>& slab() {
+    Slab<T>& get_slab() {
         uint8_t tid = TypeInfo<T>::type_id;
         if (!registry[tid]) {
-            auto new_slab = std::make_unique<Slab<T>>(default_cap);
-            registry[tid] = new_slab.get();
-            owned_storage.push_back(std::move(new_slab));
+            auto s = std::make_unique<Slab<T>>(cap);
+            registry[tid] = s.get();
+            storage.push_back(std::move(s));
         }
         return *static_cast<Slab<T>*>(registry[tid]);
     }
 
     template<typename T>
-    Atom add(const T& val) {
-        T copy = val;
-        return slab<T>().create(std::move(copy), this);
+    Atom add(T&& val) {
+        return get_slab<std::decay_t<T>>().create(std::forward<T>(val), this);
     }
 
     template<typename T>
-    Atom add(T&& val) {
-        return slab<std::decay_t<T>>().create(std::forward<T>(val), this);
+    Atom add(const T& val) {
+        T copy = val;
+        return get_slab<T>().create(std::move(copy), this);
     }
 
     template<typename T>
     T* get(Atom h) {
-        return slab<T>().resolve(h);
+        return get_slab<T>().resolve(h);
     }
 
     template<typename T>
     T* get_array() {
-        return slab<T>().data;
+        return get_slab<T>().data;
     }
 
     template<typename T>
     World* get_world_at(uint32_t idx) {
-        return slab<T>().get_world(idx);
+        return get_slab<T>().get_world(idx);
     }
 
     template<typename T>
@@ -257,19 +223,11 @@ struct World {
     }
 
     void cleanup() {
-        if (death_row.empty()) 
-            return;
-
-        std::sort(death_row.begin(), death_row.end(), std::greater<uint32_t>());
-        uint32_t last_processed = 0xFFFFFFFF;
-
+        if (death_row.empty()) return;
         for (uint32_t index : death_row) {
-            if (index == last_processed) 
-                continue;
             for (ISlab* s : registry) {
-                if (s && s->count() > (size_t)index) s->swap_and_pop(index);
+                if (s) s->remove_at(index);
             }
-            last_processed = index;
         }
         death_row.clear();
     }

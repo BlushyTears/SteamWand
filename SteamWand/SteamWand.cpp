@@ -89,7 +89,7 @@ int main() {
     reverseLookupExample();
     worldOfWorldsExample();
     
-    //printf("\n=== Steamwand benchmarks ===\n");
+    printf("\n=== Steamwand benchmarks ===\n");
     //steamwand_linear();
     //steamwand_query_parralel();
     //steamwand_multi_component();
