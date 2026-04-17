@@ -5,19 +5,12 @@
 #include <memory>
 #include <type_traits>
 #include <iostream>
-#include <array>
 #include <malloc.h>
 #include <cstring>
 #include <algorithm>
 
-struct Vec2 {
-    float x, y;
-};
-
-struct Vec3 {
-    float x, y, z;
-};
-
+struct Vec2 { float x, y; };
+struct Vec3 { float x, y, z; };
 struct World;
 
 struct Atom {
@@ -33,32 +26,20 @@ struct Atom {
     }
 };
 
-#define ATOM_TYPES(X) \
-    X(1, int32_t,  Int32)  \
-    X(2, uint32_t, UInt32) \
-    X(3, float,    Float)  \
-    X(4, Vec2,     Vec2)   \
-    X(5, Vec3,     Vec3)   \
-    X(6, bool,     Bool)   \
-    X(7, char,     Char)   \
-    X(8, World,    World)
-
-enum class AtomType : uint8_t {
-    Empty = 0,
-#define X_ENUM(tid, ctype, name) name = tid,
-    ATOM_TYPES(X_ENUM)
-#undef X_ENUM
+struct TypeRegistry {
+    static uint32_t next_id() {
+        static uint32_t counter = 0;
+        return counter++;
+    }
 };
 
 template<typename T>
-struct TypeInfo;
-
-#define DEFINE_TYPE_INFO(tid, ctype, name) \
-template<> struct TypeInfo<ctype> { \
-    static constexpr uint8_t type_id = uint8_t(tid); \
-    static constexpr const char* type_name = #name; \
+struct TypeInfo {
+    static uint32_t id() {
+        static uint32_t tid = TypeRegistry::next_id();
+        return tid;
+    }
 };
-ATOM_TYPES(DEFINE_TYPE_INFO)
 
 struct ISlab {
     virtual ~ISlab() = default;
@@ -86,7 +67,6 @@ struct Slab : public ISlab {
         data = (T*)_aligned_malloc(cap * sizeof(T), 64);
         meta = (Meta*)_aligned_malloc(cap * sizeof(Meta), 64);
         gens = (uint32_t*)_aligned_malloc(cap * sizeof(uint32_t), 64);
-
         memset(gens, 0, cap * sizeof(uint32_t));
     }
 
@@ -103,13 +83,10 @@ struct Slab : public ISlab {
 
     Atom create(T&& val, World* owner) {
         uint32_t idx = next_idx++;
-
         new (&data[idx]) T(std::move(val));
-
         gens[idx] = (gens[idx] + 1) | 1;
         meta[idx].owner = (void*)owner;
         meta[idx].gen = gens[idx];
-
         return { idx, gens[idx] };
     }
 
@@ -148,36 +125,35 @@ struct Slab : public ISlab {
 
 struct World {
     uint32_t cap;
-    std::array<ISlab*, 256> registry{};
+    std::vector<ISlab*> registry;
     std::vector<std::unique_ptr<ISlab>> storage;
     std::vector<uint32_t> death_row;
 
-    World(uint32_t capacity = 1024) : cap(capacity) {
-        registry.fill(nullptr);
-    }
+    World(uint32_t capacity = 1024) : cap(capacity) {}
 
-    World(World&& other) noexcept : cap(other.cap) {
-        registry = other.registry;
-        storage = std::move(other.storage);
-        death_row = std::move(other.death_row);
-        other.registry.fill(nullptr);
+    World(World&& other) noexcept :
+        cap(other.cap),
+        registry(std::move(other.registry)),
+        storage(std::move(other.storage)),
+        death_row(std::move(other.death_row)) {
     }
 
     World& operator=(World&& other) noexcept {
         if (this != &other) {
-            storage.clear();
             cap = other.cap;
-            registry = other.registry;
+            registry = std::move(other.registry);
             storage = std::move(other.storage);
             death_row = std::move(other.death_row);
-            other.registry.fill(nullptr);
         }
         return *this;
     }
 
     template<typename T>
     Slab<T>& get_slab() {
-        uint8_t tid = TypeInfo<T>::type_id;
+        uint32_t tid = TypeInfo<T>::id();
+        if (tid >= registry.size()) {
+            registry.resize(tid + 1, nullptr);
+        }
         if (!registry[tid]) {
             auto s = std::make_unique<Slab<T>>(cap);
             registry[tid] = s.get();
@@ -208,14 +184,9 @@ struct World {
     }
 
     template<typename T>
-    World* get_world_at(uint32_t idx) {
-        return get_slab<T>().get_world(idx);
-    }
-
-    template<typename T>
     size_t size() {
-        uint8_t tid = TypeInfo<T>::type_id;
-        return (tid < 256 && registry[tid]) ? registry[tid]->count() : 0;
+        uint32_t tid = TypeInfo<T>::id();
+        return (tid < registry.size() && registry[tid]) ? registry[tid]->count() : 0;
     }
 
     void queue_free(uint32_t index) {
@@ -223,7 +194,8 @@ struct World {
     }
 
     void cleanup() {
-        if (death_row.empty()) return;
+        if (death_row.empty())
+            return;
         for (uint32_t index : death_row) {
             for (ISlab* s : registry) {
                 if (s) s->remove_at(index);

@@ -14,21 +14,28 @@ void basicExamples() {
 
     World world(1024);
 
-    // 1. Adding now returns a Atom (Index + Generation)
+    // 1. Adding now returns an Atom (Index + Generation)
+    // Any type works now without needing to edit a macro
     Atom intAtom = world.add<int32_t>(42);
     world.add<float>(3.14f);
+    world.add<float>(3.15f);
     world.add<Vec3>({ 1.0f, 2.0f, 3.0f });
 
+    // Custom types work out of the box
+    struct PlayerData { int level; };
+    world.add<PlayerData>({ 10 });
+
     // 2. Safe Retrieval
-    // This is safe even after cleanup() moves memory around
     int32_t* val = world.get<int32_t>(intAtom);
     if (val) {
         std::cout << "Retrieved value via handle: " << *val << "\n";
     }
 
-    // 3. Bulk Access (Same as before, still fast)
-    int32_t* hps = world.get_array<int32_t>();
-    std::cout << "First HP value in raw array: " << hps[0] << "\n";
+    // 3. Bulk Access
+    int32_t* ints = world.get_array<int32_t>();
+    if (ints) {
+        std::cout << "First int32 value in raw array: " << ints[0] << "\n";
+    }
 
     // 4. Deletion and Cleanup
     world.queue_free(0);
@@ -45,62 +52,64 @@ void basicExamples() {
 
 void reverseLookupExample() {
     std::cout << "--- Reverse Lookup Example ---\n";
-    World* z1 = new World(1);
+    World world(1024);
 
-    z1->add<int32_t>(100);
-    z1->add<int32_t>(200);
+    world.add<int32_t>(100);
+    world.add<int32_t>(200);
 
-    int32_t* hps = z1->get_array<int32_t>();
+    int32_t* hps = world.get_array<int32_t>();
+    size_t count = world.size<int32_t>();
 
-    for (uint32_t i = 0; i < (uint32_t)z1->size<int32_t>(); ++i) {
-        World* owner = z1->get_world_at<int32_t>(i);
-        // We can still use raw indices for bulk iteration loops
+    for (uint32_t i = 0; i < (uint32_t)count; ++i) {
+        // Retrieve the world pointer associated with this specific index
+        World* owner = world.get_slab<int32_t>().get_world(i);
         std::cout << "Index " << i << " HP: " << hps[i] << " owned by World: " << owner << "\n";
     }
 
-    delete z1;
     std::cout << "------------------------------\n\n";
 }
 
-// Way to do reverse lookup (Useful for things like collision checking against many potential targets):
-void worldOfWorldsExample() {
-    std::cout << "--- World of Worlds Example (Refactored) ---\n";
-    World universe(10);
+void multipleWorldsExample() {
+    // Two independent top-level worlds
+    World overworld(1024);
+    World nether(1024);
 
-    World nested(100);
-    for (int i = 0; i < 5; i++) {
-        nested.add<int32_t>(100 + i);
-    }
+    overworld.add<int32_t>(10);
+    nether.add<int32_t>(666);
 
-    Atom nestedHandle = universe.add<World>(std::move(nested));
-    World* active = universe.get<World>(nestedHandle);
+    // A world containing multiple other worlds
+    World multiverse(10);
 
-    if (active) {
-        int32_t* hps = active->get_array<int32_t>();
-        for (size_t i = 0; i < active->size<int32_t>(); i++) {
-            World* owner = active->get_world_at<int32_t>(i);
-            std::cout << "Nested Entity " << i << " HP: " << hps[i] << " (Owner World: " << owner << ")\n";
-        }
-    }
+    World room1(100);
+    room1.add<Vec2>({ 1.0f, 1.0f });
+
+    World room2(100);
+    room2.add<Vec2>({ 5.0f, 5.0f });
+
+    // Move them in
+    multiverse.add<World>(std::move(room1));
+    multiverse.add<World>(std::move(room2));
+
+    std::cout << "Multiverse now manages 2 World components.\n";
 }
 
 int main() {
     basicExamples();
     reverseLookupExample();
-    worldOfWorldsExample();
-    
-    printf("\n=== Steamwand benchmarks ===\n");
-    //steamwand_linear();
-    //steamwand_query_parralel();
-    //steamwand_multi_component();
-    //steamwand_backwards_query();
-    //steamwand_zombie();
-    //
-    //archetype_linear();
-    //archetype_query_parallel();
-    //archetype_multi();
-    //archetype_backwards_query();
-    //archetype_zombie();
+    multipleWorldsExample();
+
+//    steamwand_linear();
+//    steamwand_query_parralel();
+//    steamwand_multi_component();
+//    steamwand_backwards_query();
+//    steamwand_zombie();
+//
+////f you still want the baseline comparisons:
+//    archetype_linear();
+//    archetype_query_parallel();
+//    archetype_multi();
+//    archetype_backwards_query();
+//    archetype_zombie();
 
     return 0;
 }
