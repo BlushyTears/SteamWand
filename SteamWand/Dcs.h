@@ -13,11 +13,18 @@
 struct Vec2 { float x, y; };
 struct Vec3 { float x, y, z; };
 
-// This is optional to add but nice for complex datatypes
 inline std::ostream& operator<<(std::ostream& os, const Vec2& v) { return os << "Vec2(" << v.x << ", " << v.y << ")"; }
 inline std::ostream& operator<<(std::ostream& os, const Vec3& v) { return os << "Vec3(" << v.x << ", " << v.y << ", " << v.z << ")"; }
 
 struct World;
+
+struct Handle {
+    uint32_t id;
+    uint32_t gen;
+
+    bool is_valid() const { return id != 0xFFFFFFFF; }
+    static Handle invalid() { return { 0xFFFFFFFF, 0 }; }
+};
 
 #define ATOM_TYPES(X) \
     X(1, int32_t,  Int32)  \
@@ -59,18 +66,27 @@ struct Slab : public ISlab {
     struct Meta {
         World* owner_world;
         uint32_t gen;
+        uint32_t handle_id;
     };
 
     T* data;
     Meta* meta;
+    uint32_t* sparse_map;
+    uint32_t* gen_map;
+
     uint32_t cap;
     uint32_t live_count;
+    uint32_t next_handle_id;
 
-    Slab(uint32_t capacity) : cap(capacity), live_count(0) {
+    Slab(uint32_t capacity) : cap(capacity), live_count(0), next_handle_id(0) {
         data = (T*)_aligned_malloc(cap * sizeof(T), 64);
         meta = (Meta*)_aligned_malloc(cap * sizeof(Meta), 64);
-        if (meta)
-            memset(meta, 0, cap * sizeof(Meta));
+        sparse_map = (uint32_t*)_aligned_malloc(cap * sizeof(uint32_t), 64);
+        gen_map = (uint32_t*)_aligned_malloc(cap * sizeof(uint32_t), 64);
+
+        if (meta) memset(meta, 0, cap * sizeof(Meta));
+        if (gen_map) memset(gen_map, 0, cap * sizeof(uint32_t));
+        if (sparse_map) memset(sparse_map, 0xFF, cap * sizeof(uint32_t));
     }
 
     ~Slab() {
@@ -79,54 +95,67 @@ struct Slab : public ISlab {
         }
         _aligned_free(data);
         _aligned_free(meta);
+        _aligned_free(sparse_map);
+        _aligned_free(gen_map);
     }
 
-    void create(const T& val, World* owner) {
-        uint32_t idx = live_count++;
-        new (&data[idx]) T(val);
-        meta[idx].owner_world = owner;
-        meta[idx].gen++;
+    Handle create(T&& val, World* owner) {
+        uint32_t dense_idx = live_count++;
+        uint32_t h_id = next_handle_id++;
+
+        new (&data[dense_idx]) T(std::move(val));
+
+        gen_map[h_id]++;
+        sparse_map[h_id] = dense_idx;
+
+        meta[dense_idx].owner_world = owner;
+        meta[dense_idx].gen = gen_map[h_id];
+        meta[dense_idx].handle_id = h_id;
+
+        return { h_id, gen_map[h_id] };
     }
 
-    void create(T&& val, World* owner) {
-        uint32_t idx = live_count++;
-        new (&data[idx]) T(std::move(val));
-        meta[idx].owner_world = owner;
-        meta[idx].gen++;
-    }
+    void swap_and_pop(uint32_t dense_index) override {
+        uint32_t last_dense_idx = --live_count;
 
-    void swap_and_pop(uint32_t index) override {
-        uint32_t last_idx = --live_count;
-        if (index != last_idx) {
+        uint32_t deleted_handle_id = meta[dense_index].handle_id;
+        gen_map[deleted_handle_id]++;
+        sparse_map[deleted_handle_id] = 0xFFFFFFFF;
+
+        if (dense_index != last_dense_idx) {
             if constexpr (std::is_move_assignable_v<T>) {
-                data[index] = std::move(data[last_idx]);
+                data[dense_index] = std::move(data[last_dense_idx]);
             }
             else {
-                data[index].~T();
-                new (&data[index]) T(std::move(data[last_idx]));
+                data[dense_index].~T();
+                new (&data[dense_index]) T(std::move(data[last_dense_idx]));
             }
-            meta[index].owner_world = meta[last_idx].owner_world;
-            meta[index].gen++;
+
+            uint32_t moved_handle_id = meta[last_dense_idx].handle_id;
+            sparse_map[moved_handle_id] = dense_index;
+
+            meta[dense_index] = meta[last_dense_idx];
         }
         else {
-            data[index].~T();
-            meta[index].gen++;
+            data[dense_index].~T();
         }
     }
 
-    World* get_world(uint32_t index) const override {
-        return meta[index].owner_world;
+    T* resolve(Handle h) {
+        if (h.id >= next_handle_id || gen_map[h.id] != h.gen) return nullptr;
+        uint32_t dense_idx = sparse_map[h.id];
+        return (dense_idx == 0xFFFFFFFF) ? nullptr : &data[dense_idx];
     }
+
+    World* get_world(uint32_t index) const override { return meta[index].owner_world; }
+    size_t count() const override { return (size_t)live_count; }
 
     void clear_all() override {
-        for (uint32_t i = 0; i < live_count; ++i) {
-            data[i].~T();
-        }
+        for (uint32_t i = 0; i < live_count; ++i) data[i].~T();
         live_count = 0;
-    }
-
-    size_t count() const override {
-        return (size_t)live_count;
+        next_handle_id = 0;
+        memset(gen_map, 0, cap * sizeof(uint32_t));
+        memset(sparse_map, 0xFF, cap * sizeof(uint32_t));
     }
 };
 
@@ -175,13 +204,19 @@ struct World {
     }
 
     template<typename T>
-    void add(const T& val) {
-        slab<T>().create(val, this);
+    Handle add(const T& val) {
+        T copy = val;
+        return slab<T>().create(std::move(copy), this);
     }
 
     template<typename T>
-    void add(T&& val) {
-        slab<std::decay_t<T>>().create(std::move(val), this);
+    Handle add(T&& val) {
+        return slab<std::decay_t<T>>().create(std::forward<T>(val), this);
+    }
+
+    template<typename T>
+    T* get(Handle h) {
+        return slab<T>().resolve(h);
     }
 
     template<typename T>
@@ -205,18 +240,14 @@ struct World {
     }
 
     void cleanup() {
-        if (death_row.empty())
-            return;
-
+        if (death_row.empty()) return;
         std::sort(death_row.begin(), death_row.end(), std::greater<uint32_t>());
         uint32_t last_processed = 0xFFFFFFFF;
 
         for (uint32_t index : death_row) {
-            if (index == last_processed)
-                continue;
+            if (index == last_processed) continue;
             for (ISlab* s : registry) {
-                if (s && s->count() > (size_t)index)
-                    s->swap_and_pop(index);
+                if (s && s->count() > (size_t)index) s->swap_and_pop(index);
             }
             last_processed = index;
         }
