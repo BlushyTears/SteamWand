@@ -9,16 +9,17 @@
 #define NOW() std::chrono::high_resolution_clock::now()
 #define MS(start, end) std::chrono::duration<double, std::milli>(end - start).count()
 
-
 // Todo:
-// Cleanup should be automatic in world raii probably instead of explicit
-// queue_free should take atom not index to avoid freeing the wrong data
-// view should potentially be removed
+// - Cleanup should be automatic in world raii probably instead of explicit
+// - queue_free should take atom not index to avoid freeing the wrong data
+// - view could potentially be removed (Need to think about it more)
+// - World struct should default to giving local array,
+//      if you want entire slab it should be called global array or get full or something
+ 
+// - get_slab<T>() has a subtle bug. When a type is registered for the first time, 
+//      it pushes the unique_ptr into storage but stores a raw pointer into registry. 
+//      If storage reallocates (it's a std::vector), the raw pointers in registry become dangling. 
 
-// get_slab<T>() has a subtle bug. When a type is registered for the first time, 
-// it pushes the unique_ptr into storage but stores a raw pointer into registry. 
-// If storage reallocates (it's a std::vector), the raw pointers in registry become dangling. 
-// 
 
 
 void basicExamples() {
@@ -38,13 +39,13 @@ void basicExamples() {
     world.add<PlayerData>({ 10 });
 
     // Safe Retrieval
-    int32_t* val = world.get<int32_t>(intAtom);
+    auto* val = world.get<int32_t>(intAtom);
     if (val) {
         std::cout << "Retrieved value via handle: " << *val << "\n";
     }
 
     // Bulk Access
-    int32_t* ints = world.get_array<int32_t>();
+    auto* ints = world.get_array<int32_t>();
     if (ints) {
         std::cout << "First int32 value in raw array: " << ints[0] << "\n";
     }
@@ -54,7 +55,7 @@ void basicExamples() {
     world.cleanup();
 
     // Post-Cleanup Safety Check
-    int32_t* expiredVal = world.get<int32_t>(intAtom);
+    auto* expiredVal = world.get<int32_t>(intAtom);
     if (!expiredVal) {
         std::cout << "Atom correctly invalidated after deletion/cleanup.\n";
     }

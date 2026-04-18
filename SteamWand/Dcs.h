@@ -116,7 +116,7 @@ struct Slab : public ISlab {
         gens[idx] = (gens[idx] + 1) | 1;
         meta[idx].owner = (void*)owner;
         meta[idx].gen = gens[idx];
-        presence[idx / 64] |= (1ULL << (idx % 64)); // set bit
+        presence[idx / 64] |= (1ULL << (idx % 64));
         return { idx, gens[idx] };
     }
 
@@ -124,7 +124,7 @@ struct Slab : public ISlab {
         if (index < next_idx && (gens[index] % 2 != 0)) {
             data[index].~T();
             gens[index]++;
-            presence[index / 64] &= ~(1ULL << (index % 64)); // clear bit
+            presence[index / 64] &= ~(1ULL << (index % 64));
         }
     }
 
@@ -137,7 +137,6 @@ struct Slab : public ISlab {
         memset(presence, 0, words * sizeof(uint64_t));
     }
 
-    // unchanged: resolve, get_world, count
 };
 
 template <typename... Types>
