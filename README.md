@@ -127,15 +127,6 @@ world.get<int32_t>(a);  // now a nullptr
 
 ---
 
-## Cleanup Model
-
-```cpp
-world.queue_free(0);
-world.cleanup();  // Explicit deferred cleanup 
-```
-
----
-
 ### Custom types
 
 ```cpp
