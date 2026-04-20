@@ -8,8 +8,7 @@
 
 - **Use one world or many worlds:** Prototype with a single `World`, nest worlds inside other worlds or keep many decoupled worlds based on your needs.
 - **Pay for what you use:** Data is stored per type in contiguous slabs, and nothing is allocated until you create it.
-- **Keep ownership explicit:** Every stored value carries a generational `Atom` handle.
-- **Compose freely:** Storage is runtime-driven, **any C++ type works out of the box** - no macros needed.
+- **Compose freely:** Storage is runtime-driven, any C++ type works out of the without needing macros.
 - **Stay flexible:** Worlds can be nested, moved, and accessed directly when you want maximum control.
 - **Respects the programmer**: SteamWand aims to be an engine that lets the end-user do more, not less with infinite guardrails.
 
@@ -153,6 +152,9 @@ void basicExamples() {
 - **Multi-type views**: `view<Types...>()` for queries using bitmask iteration
 - **Generation marking**: No compaction, sparse over time
 - **Zero boilerplate**: No macros, no registration
+
+## Technical Constrains:
+- Deleting atoms in a world over time creates gaps due to no established degramentation in place (The workarounds are either: **Solution 1:** Delete that world after a while and replace it with a new, or **Solution 2:** avoid deleting and just disable/reset it if you want tightly packed data for optimal cache locality). In most cases these holes don't matter because it's very typical to discard data after it has been used (**Solution 1**) or just reset state, such as setting bool isAlive to false (**Solution 2:**). For this reason, I have opted to not have defragmentation aligned as it allows for implicit & ecs-inspired, multi-world access. (If World A's ground slabs is to affect World B's character transform slabs to discover what kind of ground the character is walking on, then it's important that the character slabs don't get re-organized).
 
 ---
 
