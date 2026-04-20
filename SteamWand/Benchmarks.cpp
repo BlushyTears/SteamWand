@@ -24,7 +24,8 @@ static void print_stats(const char* name, double total_time) {
 
 void steamwand_linear() {
     World world(ITEMS);
-    for (int i = 0; i < ITEMS; i++) world.add<float>(float(i));
+    for (int i = 0; i < ITEMS; i++) 
+        world.add<float>(float(i));
 
     float* RESTRICT data = world.get_array<float>();
     size_t count = world.size<float>();
@@ -91,8 +92,10 @@ void steamwand_backwards_query() {
     World world(ITEMS);
     for (int i = 0; i < ITEMS; i++) {
         world.add<Vec3>({ float(i), float(i * 2), float(i * 3) });
-        if (i % 2 == 0) world.add<float>(float(i) * 0.5f);
-        else world.add<bool>(true);
+        if (i % 2 == 0) 
+            world.add<float>(float(i) * 0.5f);
+        else 
+            world.add<bool>(true);
     }
 
     Vec3* RESTRICT pos = world.get_array<Vec3>();

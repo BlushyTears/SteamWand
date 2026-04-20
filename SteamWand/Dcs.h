@@ -61,6 +61,7 @@ struct ISlab {
     virtual size_t count() const = 0;
     virtual void remove_at(uint32_t index) = 0;
     virtual World* get_world(uint32_t index) const = 0;
+    virtual bool validate(Atom h) const = 0;
 };
 
 template<typename T>
@@ -73,7 +74,7 @@ struct Slab : public ISlab {
     T* data;
     Meta* meta;
     uint32_t* gens;
-    uint64_t* presence; // added
+    uint64_t* presence;
     uint32_t cap;
     uint32_t next_idx;
 
@@ -83,6 +84,10 @@ struct Slab : public ISlab {
 
     World* get_world(uint32_t index) const override {
         return (World*)meta[index].owner;
+    }
+
+    bool validate(Atom h) const override {
+        return h.id < next_idx && gens[h.id] == h.gen && (gens[h.id] % 2 == 0);
     }
 
     Slab(uint32_t capacity) : cap(capacity), next_idx(0) {
@@ -97,7 +102,7 @@ struct Slab : public ISlab {
 
     ~Slab() {
         for (uint32_t i = 0; i < next_idx; ++i)
-            if (gens[i] % 2 != 0) data[i].~T();
+            if (gens[i] % 2 == 0) data[i].~T();
         _aligned_free(data);
         _aligned_free(meta);
         _aligned_free(gens);
@@ -110,18 +115,17 @@ struct Slab : public ISlab {
         return &data[h.id];
     }
 
-    Atom create(T&& val, World* owner) {
-        uint32_t idx = next_idx++;
-        new (&data[idx]) T(std::move(val));
-        gens[idx] = (gens[idx] + 1) | 1;
-        meta[idx].owner = (void*)owner;
-        meta[idx].gen = gens[idx];
-        presence[idx / 64] |= (1ULL << (idx % 64));
-        return { idx, gens[idx] };
+    template<typename U>
+    Atom create(U&& component, World* world) {
+        uint32_t id = next_idx++;
+        data[id] = std::forward<U>(component);
+        meta[id].owner = world;
+        presence[id / 64] |= (1ULL << (id % 64));
+        return Atom{ id, gens[id] };
     }
 
     void remove_at(uint32_t index) override {
-        if (index < next_idx && (gens[index] % 2 != 0)) {
+        if (index < next_idx && (gens[index] % 2 == 0)) {
             data[index].~T();
             gens[index]++;
             presence[index / 64] &= ~(1ULL << (index % 64));
@@ -130,7 +134,7 @@ struct Slab : public ISlab {
 
     void clear_all() override {
         for (uint32_t i = 0; i < next_idx; ++i)
-            if (gens[i] % 2 != 0) data[i].~T();
+            if (gens[i] % 2 == 0) data[i].~T();
         next_idx = 0;
         uint32_t words = (cap + 63) / 64;
         memset(gens, 0, cap * sizeof(uint32_t));
@@ -170,7 +174,7 @@ struct View {
             else {
                 mask &= s->presence[word_idx];
             }
-        };
+            };
 
         std::apply([&](auto*... s) { (apply_mask(s), ...); }, slabs);
         return mask;
@@ -178,7 +182,7 @@ struct View {
 
     template <typename Func>
     void each(Func func) {
-        if constexpr (sizeof...(Types) == 0) 
+        if constexpr (sizeof...(Types) == 0)
             return;
 
         uint32_t max_idx = get_max_idx();
@@ -200,10 +204,14 @@ struct View {
 };
 
 struct World {
+    struct PendingRemoval {
+        uint32_t type_id;
+        Atom atom;
+    };
     uint32_t cap;
     std::vector<ISlab*> registry;
     std::vector<std::unique_ptr<ISlab>> storage;
-    std::vector<uint32_t> death_row;
+    std::vector<PendingRemoval> death_row;
 
     World(uint32_t capacity = 1024) : cap(capacity) {}
 
@@ -238,8 +246,8 @@ struct World {
     }
 
     template<typename T>
-    Atom add(T&& val) {
-        return get_slab<std::decay_t<T>>().create(std::forward<T>(val), this);
+    Atom add(T&& component) {
+        return get_slab<std::decay_t<T>>().create(std::forward<T>(component), this);
     }
 
     template<typename T>
@@ -264,16 +272,18 @@ struct World {
         return (tid < registry.size() && registry[tid]) ? registry[tid]->count() : 0;
     }
 
-    void queue_free(uint32_t index) {
-        death_row.push_back(index);
+    template<typename T>
+    void queue_free(Atom h) {
+        death_row.push_back({ TypeInfo<T>::id(), h });
     }
 
     void cleanup() {
-        if (death_row.empty())
-            return;
-        for (uint32_t index : death_row) {
-            for (ISlab* s : registry) {
-                if (s) s->remove_at(index);
+        for (const auto& pending : death_row) {
+            if (pending.type_id < registry.size()) {
+                ISlab* s = registry[pending.type_id];
+                if (s && s->validate(pending.atom)) {
+                    s->remove_at(pending.atom.id);
+                }
             }
         }
         death_row.clear();

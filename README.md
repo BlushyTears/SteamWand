@@ -165,6 +165,7 @@ For this reason, I have opted to not have defragmentation implemented as it ther
 - Non-disruptive defragmentation (No pop and swap)
 - Coroutines implementation
 - Serialization
+- Replacing lambdas with neat iterators
 
 ---
 

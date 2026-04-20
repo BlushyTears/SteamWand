@@ -3,6 +3,7 @@
 #include <chrono>
 #include <vector>
 #include "Benchmarks.h"
+#include "Snake.h"
 
 #define ITEMS 33000000
 #define RUNS  100
@@ -10,6 +11,13 @@
 #define MS(start, end) std::chrono::duration<double, std::milli>(end - start).count()
 
 // Todo:
+// - When combining worlds we need godot-like control either:
+//      - 1. Flatten the worlds into 1 forever
+//      - 2. Temporarily the parrent world caches its child worlds
+//      - 3. Cache the worlds A and B into World C O(1) via pointer and 
+//           limited add/delete capabilities to avoid race conditions (Superior option probably)
+// 
+// - Need actual safety checks for get and the likes (stupid clanker called it safe for no reason)
 // - Cleanup should be automatic in world raii probably instead of explicit
 // - queue_free should take atom not index to avoid freeing the wrong data
 // - view could potentially be removed (Need to think about it more)
@@ -20,21 +28,17 @@
 //      it pushes the unique_ptr into storage but stores a raw pointer into registry. 
 //      If storage reallocates (it's a std::vector), the raw pointers in registry become dangling. 
 
-
-
 void basicExamples() {
     std::cout << "--- Basic SteamWand Examples (Generational) ---\n";
 
     World world(1024);
 
     // Adding now returns an Atom (Index + Generation)
-    // Any type works now without needing to edit a macro
     Atom intAtom = world.add<int32_t>(42);
-    world.add<float>(3.14f);
+    Atom floatAtom1 = world.add<float>(3.14f);
     world.add<float>(3.15f);
     world.add<Vec3>({ 1.0f, 2.0f, 3.0f });
 
-    // Custom types work out of the box
     struct PlayerData { int level; };
     world.add<PlayerData>({ 10 });
 
@@ -51,13 +55,18 @@ void basicExamples() {
     }
 
     // Deletion and Cleanup
-    world.queue_free(0);
+    // We now pass the Atom and the Type so the World targets the correct Slab
+    world.queue_free<int32_t>(intAtom);
+    world.queue_free<float>(floatAtom1);
     world.cleanup();
 
-    // Post-Cleanup Safety Check
     auto* expiredVal = world.get<int32_t>(intAtom);
+
     if (!expiredVal) {
         std::cout << "Atom correctly invalidated after deletion/cleanup.\n";
+    } else {
+        // This shouldn't be reached if cleanup worked
+        std::cout << "Value still exists: " << *expiredVal << "\n";
     }
 
     std::cout << "--------------------------------\n\n";
@@ -80,6 +89,35 @@ void reverseLookupExample() {
     }
 }
 
+void universeExample() {
+    World universe(10);
+    World world(100);
+
+    struct Data { float hp; };
+
+    for (int i = 0; i < 50; i++) {
+        Data d;
+        d.hp = float(i);
+        world.add<Data>(d);
+    }
+
+    universe.add<World>(std::move(world));
+
+    size_t worldCount = universe.size<World>();
+    std::cout << "universe size is " << worldCount << std::endl;
+
+    World* worlds = universe.get_array<World>();
+
+    if (worldCount > 0) {
+        Data* dataItems = worlds[0].get_array<Data>();
+        size_t dataCount = worlds[0].size<Data>();
+
+        for (size_t i = 0; i < dataCount; i++) {
+            std::cout << "HP: " << dataItems[i].hp << std::endl;
+        }
+    }
+}
+
 void multipleWorldsExample() {
     World character(10);
 
@@ -98,6 +136,7 @@ void multipleWorldsExample() {
 
     World* items = character.get_array<World>();
     size_t itemCount = character.size<World>();
+
     float totalArmor = 0.0f;
 
     for (uint32_t i = 0; i < itemCount; i++) {
@@ -112,9 +151,12 @@ void multipleWorldsExample() {
 }
 
 int main() {
-    basicExamples();
-    reverseLookupExample();
-    multipleWorldsExample();
+    //basicExamples();
+    //reverseLookupExample();
+    //multipleWorldsExample();
+    //universeExample();
+    SnakeGame snake;
+    snake.run();
 
     //steamwand_linear();
     //steamwand_query_parallel();
