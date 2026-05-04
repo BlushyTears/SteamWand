@@ -414,19 +414,19 @@ struct World {
         return get_slab<T>().create(std::move(copy), this);
     }
 
-    // Construct a nested World in place and return a reference to it.
-    // Avoids the std::move dance when you want to populate a child World
-    // and then add it as a component:
+    // Attach an already-built World as a child. Requires std::move at the
+    // call site because the child's storage is moved into this World's slab:
     //
-    //     World& jeans = character.emplace_world(100);
+    //     World jeans(100);
     //     jeans.add<float>(0.8f);
-    //     jeans.add<std::string>("Denim");
+    //     character.attach_world(std::move(jeans));   // jeans is now empty
     //
-    // Forwards constructor arguments to World's constructor.
-    template<typename... Args>
-    World& emplace_world(Args&&... args) {
+    // After this call the source World is in a moved-from state — don't use
+    // it. The std::move at the call site is the signal that ownership has
+    // transferred.
+    World& attach_world(World&& child) {
         Slab<World>& slab = get_slab<World>();
-        Atom a = slab.create(World(std::forward<Args>(args)...), this);
+        Atom a = slab.create(std::move(child), this);
         return slab.data[a.id];
     }
 

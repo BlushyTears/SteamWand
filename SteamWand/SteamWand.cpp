@@ -13,7 +13,7 @@
 // Todo:
 // - When combining worlds we need godot-like control either:
 // - Option to combine worlds and destruct old worlds easily
-// 
+//
 // - Need actual safety checks for get and the likes (stupid clanker called it safe for no reason)
 // - Cleanup should be automatic in world raii probably instead of explicit
 // - queue_free should take atom not index to avoid freeing the wrong data
@@ -32,16 +32,15 @@
 // - world.is_live<T>(atom) as a direct validity check, instead of get<T>(atom)
 //   and checking for null.
 //
-//
 // - Recursive cleanup. world.cleanup() currently only cleans that World's
 //   death_row, not nested Worlds'. Needed if the city/house/room pattern is
 //   used heavily.
 //
 // - Save/load story. Probably user code, but the engine could expose a stable-
 //   representation hook for a slab.
-// 
+//
 // - Filtering / predicates / optional components in iteration
-// 
+//
 // - Get world by atom
 //
 // Ideas but probably little plan to add these immediately:
@@ -55,12 +54,12 @@ struct Vec2 { float x, y; };
 struct Vec3 { float x, y, z; };
 
 void basicExamples() {
-    std::cout << "--- Basic SteamWand Examples (Generational) ---\n";
+    std::cout << "--- Basic SteamWand Examples ---\n";
 
     World world(1024);
 
-    // Adding returns an Atom but you can opt to exclude if you don't care about the individual type 
-    // For instance if you made a bullet hell game you wouldn't care about a bullet, 
+    // Adding returns an Atom but you can opt to exclude if you don't care about the individual type
+    // For instance if you made a bullet hell game you wouldn't care about a bullet,
     // but it can be a useful reference so that you don't have to iterate an entire world to find a specific field
     Atom intAtom = world.add<int32_t>(42);
     Atom floatAtom1 = world.add<float>(3.14f);
@@ -125,13 +124,13 @@ void universeExample() {
 
     struct Data { float hp; };
 
-    World& world = universe.attatch_world(100);
-
+    World world(100);
     for (int i = 0; i < 50; i++) {
         Data d;
         d.hp = float(i);
         world.add<Data>(d);
     }
+    universe.attach_world(std::move(world));
 
     size_t worldCount = universe.size<World>();
     std::cout << "universe size is " << worldCount << std::endl;
@@ -148,20 +147,27 @@ void universeExample() {
 void multipleWorldsExample() {
     World character(10);
 
+    // Build clothing Worlds standalone, then attach them. The std::move at
+    // the call site signals ownership transfer — after attach_world, the
+    // local variable is empty.
+
     // Jeans have 3 components
-    World& jeans = character.attatch_world(100);
+    World jeans(100);
     jeans.add<float>(0.8f);
     jeans.add<std::string>("Denim");
     jeans.add<Vec2>({ 32, 34 });
 
     // Shirt only has 1 component
-    World& shirt = character.attatch_world(100);
+    World shirt(100);
     shirt.add<float>(0.2f);
+
+    character.attach_world(std::move(jeans));
+    character.attach_world(std::move(shirt));
 
     float totalArmor = 0.0f;
 
     for (auto& item : character.iter<World>()) {
-        // Each clothing-world holds a single armor float; sum the first one if present.
+        // Each clothing-world holds a single armor float
         for (auto& armor : item.iter<float>()) {
             std::cout << "Incrementing total armor: " << totalArmor << " By: " << armor << std::endl;
             totalArmor += armor;

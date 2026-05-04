@@ -103,30 +103,20 @@ for (size_t i = 0; i < world.size<int32_t>(); ++i) {
 
 ## World of Worlds
 
-Store worlds as components for hierarchy (similar concept to Godot scenes):
+Store worlds as components for hierarchy (similar concept to Godot scenes). Build a child World standalone, then attach it with `std::move`:
 
 ```cpp
 World universe(10);
 
-// Construct a nested World in place and get a reference back.
-// No std::move dance needed.
-World& nested = universe.emplace_world(100);
+World nested(100);
 nested.add<int32_t>(100);
+
+universe.attach_world(std::move(nested));   // nested is now empty
 ```
 
-If you have a pre-built World you want to nest, the move form still works:
-
-```cpp
-World detached(100);
-detached.add<int32_t>(200);
-universe.add<World>(std::move(detached));
-```
-
----
+`std::move` implies that the original world is discarded.
 
 ## Atom Invalidation
-
-Freed atoms are detected via the slab's presence bitmap:
 
 ```cpp
 Atom a = world.add<int32_t>(42);
@@ -167,7 +157,7 @@ void example() {
 
 ## Technical considerations
 
-- Slabs are fixed capacity. The `cap` you pass to `World(cap)` is a hard limit per slab; exceeding it asserts. Pointers from `get_array<T>()` and references from `iter` / `emplace_world` are stable for the World's lifetime.
+- Slabs are fixed capacity. The `cap` you pass to `World(cap)` is a hard limit per slab; exceeding it asserts. Pointers from `get_array<T>()` and references from `iter` are stable for the World's lifetime.
 - Deleted slots are not reclaimed — `next_idx` only goes up, leaving holes in the slab over time. Two workarounds when this matters:
   - **Discard the World and rebuild.** Cheap, common, and matches how most game state is naturally scoped (per scene, per level, per round).
   - **Don't delete — disable.** Set an `alive` flag on the component instead of removing it. Keeps the slab tightly packed for cache-friendly iteration.
