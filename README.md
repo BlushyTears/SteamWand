@@ -66,7 +66,7 @@ for (size_t i = 0; i < world.size<int32_t>(); ++i) {
 
 ## Iteration
 
-`World::iter<T>()` for a single type, `iter<A, B, ...>()` for multiple.:
+`World::iter<T>()` for a single type, `iter<A, B, and so on>()` for multiple types:
 
 ```cpp
 // Single type
@@ -141,7 +141,7 @@ world.discard(); // every slab is now empty, allocations are kept
 world.add<int32_t>(7); // reuses the same memory
 ```
 
-`discard()` runs destructors on every live component but keeps the slab allocations, so refilling the World is fast. Any `Atom` you got from this World before calling `discard()` is now invalid and `get()` will return `nullptr` for it.
+`discard()` empties the World. Anything you added is gone, but the World itself is ready to use again. Atoms from before the discard no longer point at anything.
 
 ---
 
