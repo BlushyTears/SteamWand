@@ -10,8 +10,8 @@
 - **Pay for what you use:** Data is stored per type in contiguous slabs, and nothing is allocated until you create it.
 - **Compose freely:** Storage is runtime-driven, any C++ type works out of the box without needing macros.
 - **Stay flexible:** Worlds can be nested, moved, and accessed directly when you want maximum control.
-- **Respects the programmer**: SteamWand aims to be an engine that lets the end-user do more, not less with infinite guardrails.
-
+- **Respects the programmer:** SteamWand aims to be an engine that lets the user do more, not less with infinite guardrails.
+- **Takes lessons from ecs, oop, composition, DOD:** without necessarily being in any of those categories
 ---
 
 ## Core Types
@@ -21,7 +21,7 @@ SteamWand centers around a small set of building blocks:
 - `World`: owns type slabs, tracks storage, and handles deferred cleanup.
 - `Slab<T>`: per-type storage with aligned allocation and a presence bitmap.
 - `Atom`: a lightweight handle into a slab.
-- `iter<Types...>()`: bitmask-driven iteration over one or more component types.
+- `iter<>()`: iteration over one or more component types.
 
 ---
 
@@ -66,7 +66,7 @@ for (size_t i = 0; i < world.size<int32_t>(); ++i) {
 
 ## Iteration
 
-`World::iter<T>()` for a single type, `iter<A, B, ...>()` for multiple. Use range-for:
+`World::iter<T>()` for a single type, `iter<A, B, ...>()` for multiple.:
 
 ```cpp
 // Single type
@@ -74,7 +74,7 @@ for (auto& hp : world.iter<int32_t>()) {
     hp -= 1;
 }
 
-// Multiple types  (yields only entries present in every slab):
+// Multiple types (yields only entries present in every slab):
 for (auto [hp, pos, speed] : world.iter<int32_t, Vec3, float>()) {
     if (hp > 0) {
         pos.x += speed * 0.016f;
@@ -82,8 +82,6 @@ for (auto [hp, pos, speed] : world.iter<int32_t, Vec3, float>()) {
     }
 }
 ```
-
-Multi-type iteration uses presence-bitmask intersection — only slots that exist in every queried slab are visited.
 
 ---
 
@@ -122,10 +120,28 @@ universe.attach_world(std::move(nested));   // nested is now empty
 Atom a = world.add<int32_t>(42);
 world.get<int32_t>(a);          // returns pointer
 
-world.queue_free<int32_t>(a);
+world.queue_free<int32_t>(a); // it's advised to just reset and reuse if possible
 world.cleanup();
 world.get<int32_t>(a);          // returns nullptr
 ```
+
+---
+
+## Discarding a World
+
+When you want to throw out everything in a World and start fresh — between scenes, between rounds, between test cases; use: `discard()`:
+
+```cpp
+World world(1024);
+world.add<int32_t>(42);
+world.add<std::string>("hello");
+
+world.discard(); // every slab is now empty, allocations are kept
+
+world.add<int32_t>(7); // reuses the same memory
+```
+
+`discard()` runs destructors on every live component but keeps the slab allocations, so refilling the World is fast. Any `Atom` you got from this World before calling `discard()` is now invalid and `get()` will return `nullptr` for it.
 
 ---
 
@@ -135,7 +151,7 @@ world.get<int32_t>(a);          // returns nullptr
 void example() {
     World world(1024);
 
-    struct PlayerData { int level; float speed; };
+    struct PlayerData {int level; float speed;};
     world.add<PlayerData>({10, 5.5f});
     world.add<int32_t>(0);
 
@@ -151,18 +167,18 @@ void example() {
 ## Current Characteristics
 
 - **Dynamic typing**: Any C++ type via `TypeInfo<T>::id()`
-- **Range-for iteration**: `iter<Types...>()` over single or multiple component types
-- **Bitmask query**: Multi-type iteration intersects presence bitmaps
-- **Zero boilerplate**: No macros, no registration
+- **Range-for iteration**: `iter<Types...>()` over single or multiple component types ecs-style
+- **Bitmask query**: Multi-type iteration includes types via bitmask access
+- **No boilerplate**: macros, type registration
 
 ## Technical considerations
 
-- Slabs are fixed capacity. The `cap` you pass to `World(cap)` is a hard limit per slab; exceeding it asserts. Pointers from `get_array<T>()` and references from `iter` are stable for the World's lifetime.
+- Slabs are fixed capacity. The `cap` you pass to `World(cap)` is a hard limit per slab; exceeding it asserts. Pointers from `get_array<T>()` and references from `iter` are stable for the World's lifetime. Most likely the plan is to use a fixed-sized array with linked list if we exceed the size.
 - Deleted slots are not reclaimed — `next_idx` only goes up, leaving holes in the slab over time. Two workarounds when this matters:
-  - **Discard the World and rebuild.** Cheap, common, and matches how most game state is naturally scoped (per scene, per level, per round).
+  - **Discard the World.** Call `discard()` (or let it go out of scope) and start fresh. Cheap, common, and matches how most game state is naturally scoped (per scene, per level, per round).
   - **Don't delete — disable.** Set an `alive` flag on the component instead of removing it. Keeps the slab tightly packed for cache-friendly iteration.
 
-Defragmentation isn't implemented because slot-correlation across slabs is part of the idea: components added together share an index, and reorganizing one slab would silently break references from any other slab that assumed the layout.
+Defragmentation isn't implemented at the moment because slot-correlation across slabs is part of the idea: components added together share an index similarly to how ecs does backwards searching. It's probably possible to move the elements of all slabs at the same time, but it needs more thought.
 
 ---
 
