@@ -177,24 +177,24 @@ void multipleWorldsExample() {
 }
 
 int main() {
-    basicExamples();
-    reverseLookupExample();
-    multipleWorldsExample();
-    universeExample();
+    //basicExamples();
+    //reverseLookupExample();
+    //multipleWorldsExample();
+    //universeExample();
     //SnakeGame snake;
     //snake.run();
 
-    //steamwand_linear();
-    //steamwand_query_parallel();
-    //steamwand_multi_component();
-    //steamwand_backwards_query();
-    //steamwand_zombie();
+    steamwand_linear();
+    steamwand_query_parallel();
+    steamwand_multi_component();
+    steamwand_backwards_query();
+    steamwand_zombie();
 
-    //archetype_linear();
-    //archetype_query_parallel();
-    //archetype_multi();
-    //archetype_backwards_query();
-    //archetype_zombie();
+    archetype_linear();
+    archetype_query_parallel();
+    archetype_multi();
+    archetype_backwards_query();
+    archetype_zombie();
 
     return 0;
 }

@@ -414,16 +414,15 @@ struct World {
         return get_slab<T>().create(std::move(copy), this);
     }
 
-    // Attach an already-built World as a child. Requires std::move at the
-    // call site because the child's storage is moved into this World's slab:
-    //
-    //     World jeans(100);
-    //     jeans.add<float>(0.8f);
-    //     character.attach_world(std::move(jeans));   // jeans is now empty
-    //
-    // After this call the source World is in a moved-from state — don't use
-    // it. The std::move at the call site is the signal that ownership has
-    // transferred.
+    void discard() {
+        for (auto& slab : registry) {
+            if (slab) {
+                slab->clear_all();
+            }
+        }
+        death_row.clear();
+    }
+
     World& attach_world(World&& child) {
         Slab<World>& slab = get_slab<World>();
         Atom a = slab.create(std::move(child), this);
