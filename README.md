@@ -8,7 +8,7 @@
 
 - **Use one world or many worlds:** Prototype with a single `World`, nest worlds inside other worlds or keep many decoupled worlds based on your needs.
 - **Pay for what you use:** Data is stored per type in contiguous slabs, and nothing is allocated until you create it.
-- **Compose freely:** Storage is runtime-driven, any C++ type works out of the box without needing macros.
+- **Compose freely:** Storage is runtime-driven, any C++ type works out of the box.
 - **Stay flexible:** Worlds can be nested, moved, and accessed directly when you want maximum control.
 - **Respects the programmer:** SteamWand aims to be an engine that lets the user do more, not less with infinite guardrails.
 - **Takes lessons from ecs, oop, composition, DOD:** without necessarily being in any of those categories
@@ -120,7 +120,7 @@ universe.attach_world(std::move(nested));   // nested is now empty
 Atom a = world.add<int32_t>(42);
 world.get<int32_t>(a);          // returns pointer
 
-world.queue_free<int32_t>(a); // it's advised to just reset and reuse if possible
+world.queue_free<int32_t>(a);
 world.cleanup();
 world.get<int32_t>(a);          // returns nullptr
 ```
@@ -129,7 +129,7 @@ world.get<int32_t>(a);          // returns nullptr
 
 ## Discarding a World
 
-When you want to throw out everything in a World and start fresh — between scenes, between rounds, between test cases; use: `discard()`:
+When you want to throw out everything in a World and start fresh, use: `discard()`:
 
 ```cpp
 World world(1024);
