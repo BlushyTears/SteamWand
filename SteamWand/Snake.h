@@ -79,11 +79,12 @@ private:
             int posY = rand() % ROWS;
             bool isOccupied = false;
 
-            world.view<Segment>().each([&](Segment& segment) {
+            for (auto& segment : world.iter<Segment>()) {
                 if (segment.x == posX && segment.y == posY) {
                     isOccupied = true;
+                    break;
                 }
-            });
+            }
 
             if (!isOccupied) {
                 Apple* appleData = world.get<Apple>(appleAtom);
@@ -132,17 +133,19 @@ private:
             headY = (headY + dirY + ROWS) % ROWS;
 
             bool selfHit = false;
-            world.view<Segment>().each([&](Segment& segment) {
+            for (auto& segment : world.iter<Segment>()) {
                 if (segment.lifetime > 0 && segment.x == headX && segment.y == headY) {
                     selfHit = true;
+                    break;
                 }
-                });
+            }
 
             if (selfHit) {
                 buildAndDraw(true);
                 return;
             }
 
+            // Check if snake found apple
             Apple* appleData = world.get<Apple>(appleAtom);
             if (appleData && appleData->x == headX && appleData->y == headY) {
                 score += 10;
@@ -151,14 +154,14 @@ private:
             }
 
             // Decrement lifetime for all tail segments
-            world.view<Segment>().each([&](Segment& segment) {
+            for (auto& segment : world.iter<Segment>()) {
                 segment.lifetime--;
-            });
+            }
 
             // Remove tail segments that have expired
             auto& slab = world.get_slab<Segment>();
             for (uint32_t i = 0; i < slab.next_idx; ++i) {
-                Atom handle = { i, slab.gens[i] };
+                Atom handle = { i };
                 if (slab.data[i].lifetime <= 0) {
                     world.queue_free<Segment>(handle);
                 }
@@ -177,9 +180,9 @@ private:
         char board[ROWS][COLS];
         memset(board, '.', sizeof(board));
 
-        world.view<Segment>().each([&](Segment& segment) {
+        for (auto& segment : world.iter<Segment>()) {
             board[segment.y][segment.x] = '#';
-        });
+        }
 
         board[headY][headX] = '@';
 
@@ -203,21 +206,17 @@ void draw(const char board[ROWS][COLS], int score, int length, bool gameOver) {
     const WORD RED = FOREGROUND_RED | FOREGROUND_INTENSITY;
     const WORD WHITE = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
 
-    // 2. Draw the top border
     for (int x = 0; x < PRINT_W; x++) {
         buffer[0][x].Char.AsciiChar = '-';
         buffer[0][x].Attributes = GREEN;
     }
 
-    // 3. Draw the game area and side borders
     for (int y = 0; y < ROWS; y++) {
         int bufferY = y + 1;
 
-        // Left border
         buffer[bufferY][0].Char.AsciiChar = '|';
         buffer[bufferY][0].Attributes = GREEN;
 
-        // Content of the board
         for (int x = 0; x < COLS; x++) {
             int bufferX = x + 1;
             char cellChar = board[y][x];
@@ -234,18 +233,15 @@ void draw(const char board[ROWS][COLS], int score, int length, bool gameOver) {
             buffer[bufferY][bufferX].Attributes = cellColor;
         }
 
-        // Right border
         buffer[bufferY][COLS + 1].Char.AsciiChar = '|';
         buffer[bufferY][COLS + 1].Attributes = GREEN;
     }
 
-    // 4. Draw the bottom border
     for (int x = 0; x < PRINT_W; x++) {
         buffer[ROWS + 1][x].Char.AsciiChar = '-';
         buffer[ROWS + 1][x].Attributes = GREEN;
     }
 
-    // 5. Create and draw the status text
     char status[128];
     if (gameOver) {
         snprintf(status, sizeof(status), " GAME OVER! Score: %d  R: Restart Q: Quit", score);
@@ -261,7 +257,6 @@ void draw(const char board[ROWS][COLS], int score, int length, bool gameOver) {
         buffer[ROWS + 2][x].Attributes = WHITE;
     }
 
-    // 6. Send everything to the console at once
     HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
     COORD bufSize = { (SHORT)PRINT_W, (SHORT)PRINT_H };
     COORD bufOrigin = { 0, 0 };

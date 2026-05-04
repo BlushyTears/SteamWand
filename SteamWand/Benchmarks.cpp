@@ -17,6 +17,9 @@
 #define RESTRICT __restrict
 #endif
 
+struct Vec2 { float x, y; };
+struct Vec3 { float x, y, z; };
+
 static void print_stats(const char* name, double total_time) {
     printf("%-30s Total (Setup + %d runs): %.2fms\n", name, RUNS, total_time);
     printf("----------------------------------------------------------------------------\n");
@@ -24,7 +27,7 @@ static void print_stats(const char* name, double total_time) {
 
 void steamwand_linear() {
     World world(ITEMS);
-    for (int i = 0; i < ITEMS; i++) 
+    for (int i = 0; i < ITEMS; i++)
         world.add<float>(float(i));
 
     float* RESTRICT data = world.get_array<float>();
@@ -50,12 +53,14 @@ void steamwand_query_parallel() {
         world.add<float>(1.0f);
     }
 
-    auto v = world.view<Vec3, float>();
+    // The presence-bitmask AND gives us the set of (Vec3, float) pairs.
+    // This is the apples-to-apples comparison against archetype_query_parallel.
+    auto v = world.iter<Vec3, float>();
 
     for (int r = 0; r < RUNS; r++) {
-        v.each([](Vec3& pos, float& spd) {
+        for (auto [pos, spd] : v) {
             pos.x += spd;
-            });
+        }
     }
 
     print_stats("Steamwand parallel (unaligned):", MS(start, NOW()));
@@ -92,9 +97,9 @@ void steamwand_backwards_query() {
     World world(ITEMS);
     for (int i = 0; i < ITEMS; i++) {
         world.add<Vec3>({ float(i), float(i * 2), float(i * 3) });
-        if (i % 2 == 0) 
+        if (i % 2 == 0)
             world.add<float>(float(i) * 0.5f);
-        else 
+        else
             world.add<bool>(true);
     }
 
@@ -105,9 +110,9 @@ void steamwand_backwards_query() {
     for (int r = 0; r < RUNS; r++) {
         FORCE_VEC
             for (size_t i = 0; i < n; i++) {
-                pos[i].x += spd[i];
-                pos[i].y += spd[i];
-                pos[i].z += spd[i];
+                pos[i].x += spd[2 * i];
+                pos[i].y += spd[2 * i];
+                pos[i].z += spd[2* i];
             }
     }
     print_stats("Steamwand backwards:", MS(start, NOW()));
