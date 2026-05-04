@@ -40,8 +40,6 @@ Atom playerAtom = world.add<PlayerData>({10, 5.5f});
 
 ## Safe Atom Access
 
-`World::get<T>()` resolves atoms safely:
-
 ```cpp
 int32_t* value = world.get<int32_t>(intAtom);
 if (value) {
@@ -76,7 +74,7 @@ for (auto& hp : world.iter<int32_t>()) {
     hp -= 1;
 }
 
-// Multiple types — yields only entries present in every slab
+// Multiple types  (yields only entries present in every slab):
 for (auto [hp, pos, speed] : world.iter<int32_t, Vec3, float>()) {
     if (hp > 0) {
         pos.x += speed * 0.016f;
