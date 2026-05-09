@@ -56,9 +56,16 @@ namespace std {
     };
 }
 
-// Shared counter so every TypeInfo<T> gets a unique id. The split exists
-// because the static inside TypeInfo<T>::id() is per-T; the counter has to
-// live somewhere shared.
+// Each type T needs a unique integer id (used as an index into World's
+// registry of slabs). The trick: a `static` variable inside a template
+// function gives you ONE variable per template instantiation, not one
+// shared across them. So `static uint32_t tid` inside TypeInfo<int>::id()
+// and TypeInfo<float>::id() are two separate variables.
+//
+// We want each to be initialized to a different number. The way to do
+// that is have them all call into a shared counter that hands out fresh
+// numbers. That's what TypeRegistry::next_id() is for: one counter,
+// called once per type, the result cached in that type's static.
 struct TypeRegistry {
     static uint32_t next_id() {
         static uint32_t counter = 0;
@@ -69,6 +76,8 @@ struct TypeRegistry {
 template<typename T>
 struct TypeInfo {
     static uint32_t id() {
+        // First call for this T: counter advances, tid gets the new number.
+        // Every subsequent call: returns the same tid (initialization happens once).
         static uint32_t tid = TypeRegistry::next_id();
         return tid;
     }
@@ -134,18 +143,23 @@ struct Slab : public ISlab {
 
     template<typename U>
     Atom create(U&& component, World* world) {
-        // Hard cap. Slabs do not resize. Hitting this means the World was
-        // constructed with too small a capacity for the workload.
         assert(next_idx < cap && "Slab capacity exceeded");
 
-        uint32_t id = next_idx++;
+        uint32_t id = next_idx;
+        next_idx++;
 
-        // Placement-new into uninitialized aligned storage. Plain assignment
-        // would read the LHS as if it were a constructed T, which is UB for
-        // non-trivial types like std::string.
+        // We allocated raw bytes for `data` (aligned_malloc), so data[id] doesn't
+        // hold a real T yet - just uninitialized memory. The `new (ptr) T(...)`
+        // syntax constructs T directly into that memory. Writing `data[id] = ...`
+        // instead would assume a T already exists there and try to destruct it
+        // first, which crashes for anything non-trivial like std::string.
         new (&data[id]) T(std::forward<U>(component));
+
         owners[id] = world;
-        presence[id / 64] |= (1ULL << (id % 64));
+
+        uint32_t word = id / 64;
+        uint64_t bit = 1ULL << (id % 64);
+        presence[word] |= bit;
 
         return Atom{ id };
     }
@@ -189,7 +203,7 @@ struct View {
             }, slabs);
     }
 
-    // Range-for support. Yields T& for one type, std::tuple<Types&...> for many.
+    // Range-for support below
     struct iterator {
         const View* v;
         uint32_t word_count;
@@ -323,9 +337,9 @@ struct World {
     }
 
     template<typename T>
-    Atom add(T&& component) {
+    Atom add(T&& payload) {
         return get_slab<std::decay_t<T>>().create(
-            std::forward<T>(component), this
+            std::forward<T>(payload), this
         );
     }
 
