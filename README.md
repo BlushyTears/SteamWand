@@ -8,7 +8,7 @@
 
 - **Use one world or many worlds:** Prototype with a single `World`, nest worlds inside other worlds or keep many decoupled worlds based on your needs.
 - **Pay for what you use:** Data is stored per type in contiguous slabs, and nothing is allocated until you create it.
-- **Compose freely:** Storage is runtime-driven, any C++ type works out of the box without needing macros.
+- **Compose freely:** Storage is runtime-driven, any C++ type works out of the box.
 - **Stay flexible:** Worlds can be nested, moved, and accessed directly when you want maximum control.
 - **Respects the programmer:** SteamWand aims to be an engine that lets the user do more, not less with infinite guardrails.
 - **Takes lessons from ecs, oop, composition, DOD:** without necessarily being in any of those categories
@@ -66,7 +66,7 @@ for (size_t i = 0; i < world.size<int32_t>(); ++i) {
 
 ## Iteration
 
-`World::iter<T>()` for a single type, `iter<A, B, ...>()` for multiple.:
+`World::iter<T>()` for a single type, `iter<A, B, and so on>()` for multiple types:
 
 ```cpp
 // Single type
@@ -120,7 +120,7 @@ universe.attach_world(std::move(nested));   // nested is now empty
 Atom a = world.add<int32_t>(42);
 world.get<int32_t>(a);          // returns pointer
 
-world.queue_free<int32_t>(a); // it's advised to just reset and reuse if possible
+world.queue_free<int32_t>(a);
 world.cleanup();
 world.get<int32_t>(a);          // returns nullptr
 ```
@@ -129,7 +129,7 @@ world.get<int32_t>(a);          // returns nullptr
 
 ## Discarding a World
 
-When you want to throw out everything in a World and start fresh — between scenes, between rounds, between test cases; use: `discard()`:
+When you want to throw out everything in a World and start fresh, use: `discard()`:
 
 ```cpp
 World world(1024);
@@ -141,7 +141,7 @@ world.discard(); // every slab is now empty, allocations are kept
 world.add<int32_t>(7); // reuses the same memory
 ```
 
-`discard()` runs destructors on every live component but keeps the slab allocations, so refilling the World is fast. Any `Atom` you got from this World before calling `discard()` is now invalid and `get()` will return `nullptr` for it.
+`discard()` empties the World. Anything you added is gone, but the World itself is ready to use again. Atoms from before the discard no longer point at anything.
 
 ---
 
