@@ -1,4 +1,4 @@
-#include "Dcs.h"
+ï»¿#include "Dcs.h"
 #include <iostream>
 #include <chrono>
 #include <vector>
@@ -148,7 +148,7 @@ void multipleWorldsExample() {
     World character(10);
 
     // Build clothing Worlds standalone, then attach them. The std::move at
-    // the call site signals ownership transfer — after attach_world, the
+    // the call site signals ownership transfer ï¿½ after attach_world, the
     // local variable is empty.
 
     // Jeans have 3 components
@@ -171,7 +171,7 @@ void multipleWorldsExample() {
         for (auto& armor : item.iter<float>()) {
             std::cout << "Incrementing total armor: " << totalArmor << " By: " << armor << std::endl;
             totalArmor += armor;
-            break; // mirror original behavior — only first float per item
+            break;
         }
     }
 }

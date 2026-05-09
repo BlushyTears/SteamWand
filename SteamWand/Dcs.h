@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 
 #include <vector>
 #include <cstdint>
@@ -56,6 +56,9 @@ namespace std {
     };
 }
 
+// Shared counter so every TypeInfo<T> gets a unique id. The split exists
+// because the static inside TypeInfo<T>::id() is per-T; the counter has to
+// live somewhere shared.
 struct TypeRegistry {
     static uint32_t next_id() {
         static uint32_t counter = 0;
@@ -77,24 +80,19 @@ struct ISlab {
     virtual size_t count() const = 0;
     virtual void remove_at(uint32_t index) = 0;
     virtual World* get_world(uint32_t index) const = 0;
-    virtual bool validate(Atom h) const = 0;
 };
 
 template<typename T>
 struct Slab : public ISlab {
-    struct Meta {
-        void* owner;
-    };
-
     T* data;
-    Meta* meta;
+    World** owners;
     uint64_t* presence;
     uint32_t cap;
     uint32_t next_idx;
 
     Slab(uint32_t capacity) : cap(capacity), next_idx(0) {
         data = (T*)_aligned_malloc(cap * sizeof(T), 64);
-        meta = (Meta*)_aligned_malloc(cap * sizeof(Meta), 64);
+        owners = (World**)_aligned_malloc(cap * sizeof(World*), 64);
 
         uint32_t words = (cap + 63) / 64;
         presence = (uint64_t*)_aligned_malloc(words * sizeof(uint64_t), 64);
@@ -110,7 +108,7 @@ struct Slab : public ISlab {
         }
 
         _aligned_free(data);
-        _aligned_free(meta);
+        _aligned_free(owners);
         _aligned_free(presence);
     }
 
@@ -124,11 +122,7 @@ struct Slab : public ISlab {
     }
 
     World* get_world(uint32_t index) const override {
-        return (World*)meta[index].owner;
-    }
-
-    bool validate(Atom h) const override {
-        return h.id < next_idx && is_live(h.id);
+        return owners[index];
     }
 
     T* resolve(Atom h) {
@@ -140,7 +134,7 @@ struct Slab : public ISlab {
 
     template<typename U>
     Atom create(U&& component, World* world) {
-        // Hard cap — slabs do not resize. Hitting this means the World was
+        // Hard cap. Slabs do not resize. Hitting this means the World was
         // constructed with too small a capacity for the workload.
         assert(next_idx < cap && "Slab capacity exceeded");
 
@@ -150,7 +144,7 @@ struct Slab : public ISlab {
         // would read the LHS as if it were a constructed T, which is UB for
         // non-trivial types like std::string.
         new (&data[id]) T(std::forward<U>(component));
-        meta[id].owner = world;
+        owners[id] = world;
         presence[id / 64] |= (1ULL << (id % 64));
 
         return Atom{ id };
@@ -195,36 +189,7 @@ struct View {
             }, slabs);
     }
 
-    uint64_t get_combined_mask(uint32_t word_idx) const {
-        uint64_t mask = ~0ULL;
-
-        std::apply([&](auto*... s) {
-            ((mask &= s->presence[word_idx]), ...);
-            }, slabs);
-
-        return mask;
-    }
-
-    template <typename Func>
-    void each(Func func) {
-        uint32_t max_idx = get_max_idx();
-        uint32_t word_count = (max_idx + 63) / 64;
-
-        for (uint32_t w = 0; w < word_count; ++w) {
-            uint64_t live = get_combined_mask(w);
-
-            while (live) {
-                uint32_t bit = ctz64(live);
-                uint32_t slot = (w * 64) + bit;
-
-                func(std::get<Slab<Types>*>(slabs)->data[slot]...);
-
-                live &= (live - 1);
-            }
-        }
-    }
-
-    // Range-for support. Yields std::tuple<Types&...> per row.
+    // Range-for support. Yields T& for one type, std::tuple<Types&...> for many.
     struct iterator {
         const View* v;
         uint32_t word_count;
@@ -232,9 +197,27 @@ struct View {
         uint64_t live;       // remaining live bits in current word
         uint32_t slot;       // current slot (valid while live != 0 or end)
 
+        // For one type the live mask is just that slab's presence word.
+        // For many it's the AND across every slab's presence word, so a bit
+        // is set only where every type has a live slot at that index.
+        uint64_t mask_at(uint32_t word) const {
+            if constexpr (sizeof...(Types) == 1) {
+                return std::get<0>(v->slabs)->presence[word];
+            }
+            else {
+                uint64_t mask = ~0ULL;
+
+                std::apply([&](auto*... s) {
+                    ((mask &= s->presence[word]), ...);
+                    }, v->slabs);
+
+                return mask;
+            }
+        }
+
         void advance_to_next_live_word() {
             while (w < word_count) {
-                live = v->get_combined_mask(w);
+                live = mask_at(w);
                 if (live) {
                     return;
                 }
@@ -259,10 +242,17 @@ struct View {
             return *this;
         }
 
-        std::tuple<Types&...> operator*() const {
-            return std::tuple<Types&...>(
-                std::get<Slab<Types>*>(v->slabs)->data[slot]...
-            );
+        // The (parens) around the single-type expression keep decltype(auto)
+        // returning T&, not T. Without them it would copy.
+        decltype(auto) operator*() const {
+            if constexpr (sizeof...(Types) == 1) {
+                return (std::get<0>(v->slabs)->data[slot]);
+            }
+            else {
+                return std::tuple<Types&...>(
+                    std::get<Slab<Types>*>(v->slabs)->data[slot]...
+                );
+            }
         }
 
         bool operator!=(const iterator& other) const {
@@ -288,75 +278,6 @@ struct View {
         uint32_t wc = (max_idx + 63) / 64;
 
         return iterator{ this, wc, wc, 0, 0 };
-    }
-};
-
-// Single-component range. Lighter than View<T> — no AND-mask, just one slab.
-template <typename T>
-struct SingleView {
-    Slab<T>* slab;
-
-    explicit SingleView(Slab<T>* s) : slab(s) {}
-
-    struct iterator {
-        Slab<T>* slab;
-        uint32_t word_count;
-        uint32_t w;
-        uint64_t live;
-        uint32_t slot;
-
-        void advance_to_next_live_word() {
-            while (w < word_count) {
-                live = slab->presence[w];
-                if (live) {
-                    return;
-                }
-                ++w;
-            }
-        }
-
-        void pop_current() {
-            slot = (w * 64) + ctz64(live);
-            live &= (live - 1);
-        }
-
-        iterator& operator++() {
-            if (!live) {
-                ++w;
-                advance_to_next_live_word();
-            }
-            if (w >= word_count) {
-                return *this;
-            }
-            pop_current();
-            return *this;
-        }
-
-        T& operator*() const {
-            return slab->data[slot];
-        }
-
-        bool operator!=(const iterator& other) const {
-            return w != other.w || live != other.live;
-        }
-    };
-
-    iterator begin() const {
-        uint32_t wc = (slab->next_idx + 63) / 64;
-
-        iterator it{ slab, wc, 0, 0, 0 };
-        it.advance_to_next_live_word();
-
-        if (it.w < it.word_count) {
-            it.pop_current();
-        }
-        return it;
-    }
-
-    iterator end() const {
-        uint32_t wc = (slab->next_idx + 63) / 64;
-
-        return iterator{ slab, wc, wc, 0, 0 };
     }
 };
 
@@ -408,6 +329,9 @@ struct World {
         );
     }
 
+    // Needed because callers write add<T>(x). With an explicit template
+    // argument, T&& is no longer a forwarding reference - it's a plain
+    // rvalue reference that won't bind to lvalues. This overload catches them.
     template<typename T>
     Atom add(const T& val) {
         T copy = val;
@@ -461,7 +385,7 @@ struct World {
             }
 
             ISlab* s = registry[pending.type_id].get();
-            if (!s || !s->validate(pending.atom)) {
+            if (!s) {
                 continue;
             }
 
@@ -472,17 +396,8 @@ struct World {
     }
 
     // Range-for entry point. One type yields T&, multiple yield std::tuple<T&...>.
-    template<typename T>
-    SingleView<T> iter() {
-        return SingleView<T>(&get_slab<T>());
-    }
-
-    template<typename First, typename Second, typename... Rest>
-    auto iter() {
-        return View<First, Second, Rest...>(
-            &get_slab<First>(),
-            &get_slab<Second>(),
-            &get_slab<Rest>()...
-        );
+    template<typename... Ts>
+    View<Ts...> iter() {
+        return View<Ts...>(&get_slab<Ts>()...);
     }
 };

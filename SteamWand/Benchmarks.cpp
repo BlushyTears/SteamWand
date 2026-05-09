@@ -112,7 +112,7 @@ void steamwand_backwards_query() {
             for (size_t i = 0; i < n; i++) {
                 pos[i].x += spd[2 * i];
                 pos[i].y += spd[2 * i];
-                pos[i].z += spd[2* i];
+                pos[i].z += spd[2 * i];
             }
     }
     print_stats("Steamwand backwards:", MS(start, NOW()));
