@@ -4,6 +4,8 @@
 
 ---
 
+#### Note: Extensive use of AI was used to make this as a prototype, and it is therefore unstable. There are plans to hand-code a cleaner, more consise version of this system.
+
 ## Core Philosophy
 
 - **Use one world or many worlds:** Prototype with a single `World`, nest worlds inside other worlds or keep many decoupled worlds based on your needs.
