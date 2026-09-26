@@ -12,10 +12,9 @@ Open **SteamWand.sln** in Visual Studio 2022 (Other versions hasn't been tested)
 
 In Solution Explorer, right-click the project you want to run and choose **Set as Startup Project**, then press **F5** (debug) or **Ctrl+F5** (run without debugging).
 
-| Startup project | What runs |
-| --- | --- |
-| **SteamWand.Rendering** | The existing Win32/DirectX 12 window, using a Windows-subsystem executable in both configurations. |
-| **SteamWand.DataLayout** | A console executable with small World/Atom examples by default. No DirectX dependency. |
+| Projects so far |
+| **SteamWand.Rendering:** The existing Win32/DirectX 12 window 
+| **SteamWand.DataLayout:** A console executable with small World/Atom examples by default.
 
 One solution contains both projects; there is no need to switch solution files or edit an entry point. Each project can also be built independently by right-clicking it and choosing **Build**.
 
