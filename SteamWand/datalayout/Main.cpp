@@ -1,54 +1,12 @@
-﻿#include "Dcs.h"
-#include <iostream>
-#include <chrono>
-#include <vector>
+#include "Dcs.h"
 #include "Benchmarks.h"
 #include "Snake.h"
 
-#define ITEMS 33000000
-#define RUNS  100
-#define NOW() std::chrono::high_resolution_clock::now()
-#define MS(start, end) std::chrono::duration<double, std::milli>(end - start).count()
+#include <exception>
+#include <iostream>
+#include <string_view>
 
-// Todo:
-// - When combining worlds we need godot-like control either:
-// - Option to combine worlds and destruct old worlds easily
-//
-// - Need actual safety checks for get and the likes (stupid clanker called it safe for no reason)
-// - Cleanup should be automatic in world raii probably instead of explicit
-// - queue_free should take atom not index to avoid freeing the wrong data
-// - World struct should default to giving local array,
-//      if you want entire slab it should be called global array or get full or something
-//
-// - Expose Atom in iteration. Add iter_atoms<T>() yielding (Atom, T&) and a
-//   multi-type version. Snake's expire-loop and reverseLookupExample currently
-//   work around this by going through get_slab<T>() directly. The collision
-//   detection case (knowing which box was hit) also needs it.
-//
-// - Per-type clear: world.clear<T>(). Slab::clear_all exists but isn't reachable
-//   from World for a specific type. Useful between scenes, in tests, when
-//   resetting a sub-World.
-//
-// - world.is_live<T>(atom) as a direct validity check, instead of get<T>(atom)
-//   and checking for null.
-//
-// - Recursive cleanup. world.cleanup() currently only cleans that World's
-//   death_row, not nested Worlds'. Needed if the city/house/room pattern is
-//   used heavily.
-//
-// - Save/load story. Probably user code, but the engine could expose a stable-
-//   representation hook for a slab.
-//
-// - Filtering / predicates / optional components in iteration
-//
-// - Get world by atom
-//
-// Ideas but probably little plan to add these immediately:
-// - First-class entity ID layer
-// - Thread safety
-// - Auto-cleanup in World destructor (changes when destructors run)
-// - Built-in spatial index, scene graph, or transform hierarchy
-// - Replace vector storage with fixed array + linked list
+namespace {
 
 struct Vec2 { float x, y; };
 struct Vec3 { float x, y, z; };
@@ -148,7 +106,7 @@ void multipleWorldsExample() {
     World character(10);
 
     // Build clothing Worlds standalone, then attach them. The std::move at
-    // the call site signals ownership transfer � after attach_world, the
+    // the call site signals ownership transfer; after attach_world, the
     // local variable is empty.
 
     // Jeans have 3 components
@@ -176,25 +134,68 @@ void multipleWorldsExample() {
     }
 }
 
-int main() {
-    //basicExamples();
-    //reverseLookupExample();
-    //multipleWorldsExample();
-    //universeExample();
-    //SnakeGame snake;
-    //snake.run();
+void runExamples() {
+    basicExamples();
+    reverseLookupExample();
+    multipleWorldsExample();
+    universeExample();
+}
 
+void runBenchmarks() {
+    std::cout << "Running the existing benchmark suite (33,000,000 items, 100 runs).\n"
+                 "Use Release x64 for timing; this can use several GB of memory.\n";
     steamwand_linear();
     steamwand_query_parallel();
     steamwand_multi_component();
     steamwand_backwards_query();
     steamwand_zombie();
-
     archetype_linear();
     archetype_query_parallel();
     archetype_multi();
     archetype_backwards_query();
     archetype_zombie();
+}
 
+void printUsage() {
+    std::cout << "SteamWand.DataLayout [--examples | --benchmarks | --snake | --help]\n"
+                 "  --examples    Small data-layout examples (default).\n"
+                 "  --benchmarks  Existing full benchmark suite; use Release x64.\n"
+                 "  --snake       Interactive console Snake demo.\n"
+                 "Set arguments in Project Properties > Debugging > Command Arguments.\n";
+}
+
+} // namespace
+
+int main(int argc, char* argv[]) {
+    if (argc > 2) {
+        printUsage();
+        return 1;
+    }
+
+    const std::string_view mode = argc == 2 ? argv[1] : "--examples";
+    try {
+        if (mode == "--examples") {
+            runExamples();
+        }
+        else if (mode == "--benchmarks") {
+            runBenchmarks();
+        }
+        else if (mode == "--snake") {
+            SnakeGame snake;
+            snake.run();
+        }
+        else if (mode == "--help" || mode == "-h") {
+            printUsage();
+        }
+        else {
+            std::cerr << "Unknown option: " << mode << '\n';
+            printUsage();
+            return 1;
+        }
+    }
+    catch (const std::exception& error) {
+        std::cerr << "Data-layout runner failed: " << error.what() << '\n';
+        return 1;
+    }
     return 0;
 }

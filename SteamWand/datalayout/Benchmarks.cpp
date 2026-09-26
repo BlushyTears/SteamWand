@@ -105,14 +105,15 @@ void steamwand_backwards_query() {
 
     Vec3* RESTRICT pos = world.get_array<Vec3>();
     float* RESTRICT spd = world.get_array<float>();
+    // Slabs append independently: the live speeds occupy [0, n), not every other slot.
     size_t n = world.size<float>();
 
     for (int r = 0; r < RUNS; r++) {
         FORCE_VEC
             for (size_t i = 0; i < n; i++) {
-                pos[i].x += spd[2 * i];
-                pos[i].y += spd[2 * i];
-                pos[i].z += spd[2 * i];
+                pos[i].x += spd[i];
+                pos[i].y += spd[i];
+                pos[i].z += spd[i];
             }
     }
     print_stats("Steamwand backwards:", MS(start, NOW()));
