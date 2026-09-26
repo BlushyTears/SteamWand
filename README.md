@@ -4,11 +4,11 @@
 
 ---
 
-#### Note: Extensive use of AI was used to make this as a prototype, and it is therefore unstable. There are plans to hand-code a cleaner, more consise version of this system.
+#### Note: Usage of AI was used to make the data layout for prototyping reasons, and it is therefore unstable. There are plans to hand-code a cleaner, more consise version of this system.
 
 ## Build and run on Windows
 
-Open **SteamWand.sln** in Visual Studio 2022 with the **Desktop development with C++** workload, the **MSVC v143** toolset and a **Windows 10/11 SDK** installed. Use **Debug | x64** or **Release | x64**. Both projects use C++20; the solution targets Windows x64 only (the data layer uses MSVC x64 intrinsics).
+Open **SteamWand.sln** in Visual Studio 2022 (Other versions hasn't been tested) and right click any either of the two projects and click "Set as startup project".
 
 In Solution Explorer, right-click the project you want to run and choose **Set as Startup Project**, then press **F5** (debug) or **Ctrl+F5** (run without debugging).
 
