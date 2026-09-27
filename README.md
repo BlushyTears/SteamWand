@@ -1,70 +1,14 @@
 # SteamWand
 
-#### A modular, data-driven C++ engine built on axiomatic composition. Everything is an atom that lives in a defined world of potentially worlds if so wished for.
+#### A modular, data-driven C++ engine built on axiomatic composition. Everything is an atom that lives in a defined world of potentially worlds if so wished for. Rendering is driven by Directx12 and the long-term vision is potentially a more plugin-like architechture but for now it remains staticly linked modules and an tied with a main loop.
 
 ---
 
-#### Note: Extensive use of AI was used to make this as a prototype, and it is therefore unstable. There are plans to hand-code a cleaner, more consise version of this system.
+#### Note: Usage of AI was used to help make the data layout for prototyping reasons, and it is therefore unstable. There are plans to make a cleaner, more consise version of this system.
 
 ## Build and run on Windows
 
-Open **SteamWand.sln** in Visual Studio 2022 with the **Desktop development with C++** workload, the **MSVC v143** toolset and a **Windows 10/11 SDK** installed. Use **Debug | x64** or **Release | x64**. Both projects use C++20; the solution targets Windows x64 only (the data layer uses MSVC x64 intrinsics).
-
-In Solution Explorer, right-click the project you want to run and choose **Set as Startup Project**, then press **F5** (debug) or **Ctrl+F5** (run without debugging).
-
-| Startup project | What runs |
-| --- | --- |
-| **SteamWand.Rendering** | The existing Win32/DirectX 12 window, using a Windows-subsystem executable in both configurations. |
-| **SteamWand.DataLayout** | A console executable with small World/Atom examples by default. No DirectX dependency. |
-
-One solution contains both projects; there is no need to switch solution files or edit an entry point. Each project can also be built independently by right-clicking it and choosing **Build**.
-
-### Data-layout runner
-
-Set **Project Properties > Configuration Properties > Debugging > Command Arguments** for SteamWand.DataLayout:
-
-- No argument, or `--examples`: small examples for add/get, removal, owner lookup and nested worlds.
-- `--benchmarks`: the existing ten benchmark functions (33 million items, 100 runs). Use Release x64; the full suite can allocate several GB.
-- `--snake`: the existing interactive console Snake prototype.
-- `--help`: list the options.
-
-The data storage implementation has not been redesigned as part of the project split. The backwards-query benchmark now reads the populated speed slots with `spd[i]`; previously `spd[2 * i]` read uninitialized slots.
-
-### Rendering runner
-
-The renderer currently clears the window to blue. The unfinished `shader.hlsl` is retained as a resource and copied next to the executable; it is not compiled into a triangle pipeline yet. Renderer arguments such as `--warp`, `--width 1280` and `--height 720` go in that project's **Command Arguments** field. Debug rendering uses the Direct3D debug layer, which requires the Windows **Graphics Tools** optional feature; Release does not require that layer.
-
-### Source and build layout
-
-```text
-SteamWand.sln
-SteamWand.Windows.props              Shared compiler, output and debugger settings
-SteamWand/
-  rendering/
-    SteamWand.Rendering.vcxproj      DirectX executable project
-    Main.cpp                        wWinMain and existing renderer
-    d3dx12.h
-    shader.hlsl
-  datalayout/
-    SteamWand.DataLayout.vcxproj     Console executable project
-    Main.cpp                        Examples and runner options
-    Dcs.h                           Header-only World/Slab/Atom implementation
-    Benchmarks.cpp / Benchmarks.h
-    Snake.h
-bin/x64/<Configuration>/<Project>/   Executables and runtime resources
-obj/x64/<Configuration>/<Project>/   Intermediate build files
-```
-
-The two projects have separate output/intermediate directories and no dependency on each other. `Dcs.h` remains header-only and can later be included by the rendering code when the modules need to interact; no DLL or static-library wrapper is needed for it today. Shared build settings live in `SteamWand.Windows.props`, visible under **Solution Items** and in Property Manager.
-
-From a **Developer PowerShell for VS 2022** (repository root):
-
-```powershell
-msbuild .\SteamWand.sln /m /p:Configuration=Debug /p:Platform=x64
-msbuild .\SteamWand.sln /m /p:Configuration=Release /p:Platform=x64
-.\bin\x64\Debug\SteamWand.DataLayout\SteamWand.DataLayout.exe --examples
-.\bin\x64\Release\SteamWand.Rendering\SteamWand.Rendering.exe
-```
+Open **SteamWand.sln** in Visual Studio 2022 (Other versions hasn't been tested) and right click any either of the two projects and click "Set as startup project". One solution contains both projects: There is no need to switch solution files or edit an entry point.
 
 ## Core Philosophy
 
