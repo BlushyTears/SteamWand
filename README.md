@@ -4,15 +4,11 @@
 
 ---
 
-#### Note: Usage of AI was used to make the data layout for prototyping reasons, and it is therefore unstable. There are plans to make a cleaner, more consise version of this system.
+#### Note: Usage of AI was used to help make the data layout for prototyping reasons, and it is therefore unstable. There are plans to make a cleaner, more consise version of this system.
 
 ## Build and run on Windows
 
 Open **SteamWand.sln** in Visual Studio 2022 (Other versions hasn't been tested) and right click any either of the two projects and click "Set as startup project". One solution contains both projects: There is no need to switch solution files or edit an entry point.
-
-| Projects so far |
-| **SteamWand.Rendering:** The existing Win32/DirectX 12 window 
-| **SteamWand.DataLayout:** A console executable with small World/Atom examples by default.
 
 ## Core Philosophy
 
