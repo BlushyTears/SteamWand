@@ -2,6 +2,8 @@
 #include <chrono>
 #include <algorithm>
 #include <cassert>
+#include <vector>
+#include <windowsx.h>
 
 #include <Windows.h>
 #include <shellapi.h>
@@ -57,6 +59,7 @@ ComPtr<ID3D12GraphicsCommandList> g_CommandList;
 ComPtr<ID3D12CommandAllocator> g_CommandAllocators[g_NumFrames];
 ComPtr<ID3D12DescriptorHeap> g_RTVDescriptorHeap;
 ComPtr<ID3D12PipelineState> g_PipelineState;
+ComPtr<ID3D12PipelineState> g_LinePipelineState;
 
 UINT g_RTVDescriptorSize;
 UINT g_CurrentBackBufferIndex;
@@ -72,24 +75,27 @@ bool g_FullScreen = false;
 
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 
-void ParseCommandLineArguments() {
-    int argc;
+struct Triangle {
+    float x;
+    float y;
+    float size;
+};
 
-    wchar_t** argv = ::CommandLineToArgvW(::GetCommandLineW(), &argc);
+struct VerticalLine {
+    float x;
+    float y;
+    float size;
+};
 
-    for (size_t i = 0; i < argc; ++i) {
-        if (::wcscmp(argv[i], L"-w") == 0 || ::wcscmp(argv[i], L"--width") == 0) {
-            g_ClientWidth = ::wcstol(argv[++i], nullptr, 10);
-        }
-        if (::wcscmp(argv[i], L"-h") == 0 || ::wcscmp(argv[i], L"--height") == 0) {
-            g_ClientHeight = ::wcstol(argv[++i], nullptr, 10);
-        }
-        if (::wcscmp(argv[i], L"-warp") == 0 || ::wcscmp(argv[i], L"--warp") == 0) {
-            g_UseWarp = true;
-        }
-    }
+std::vector<VerticalLine> g_Lines;
+std::vector<Triangle> g_Triangles;
 
-    ::LocalFree(argv);
+void AddVerticalLine(float x, float y, float size) {
+    g_Lines.push_back({ x, y, size });
+}
+
+void AddTriangle(float x, float y, float size) {
+    g_Triangles.push_back({ x, y, size });
 }
 
 void EnableDebugLayer() {
@@ -195,12 +201,12 @@ ComPtr<IDXGIAdapter4> GetAdapter(bool useWarp) {
 
             if ((dxgiAdapterDesc1.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0 &&
                 SUCCEEDED(D3D12CreateDevice(dxgiAdapter1.Get(),
-                D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), nullptr)) &&
+                    D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), nullptr)) &&
                 dxgiAdapterDesc1.DedicatedVideoMemory > maxDedicatedVideoMemory) {
-                    
-                    maxDedicatedVideoMemory = dxgiAdapterDesc1.DedicatedVideoMemory;
-                    ThrowIfFailed(dxgiAdapter1.As(&dxgiAdapter4));
-                
+
+                maxDedicatedVideoMemory = dxgiAdapterDesc1.DedicatedVideoMemory;
+                ThrowIfFailed(dxgiAdapter1.As(&dxgiAdapter4));
+
             }
         }
     }
@@ -212,34 +218,34 @@ ComPtr<ID3D12Device2> CreateDevice(ComPtr<IDXGIAdapter4> adapter) {
     ComPtr<ID3D12Device2> d3d12Device2;
     ThrowIfFailed(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&d3d12Device2)));
 
-    #if defined(_DEBUG)
-        ComPtr<ID3D12InfoQueue> pInfoQueue;
-        if (SUCCEEDED(d3d12Device2.As(&pInfoQueue))) {
-            pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE);
-            pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, TRUE);
-            pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, TRUE);
+#if defined(_DEBUG)
+    ComPtr<ID3D12InfoQueue> pInfoQueue;
+    if (SUCCEEDED(d3d12Device2.As(&pInfoQueue))) {
+        pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE);
+        pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, TRUE);
+        pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, TRUE);
 
-            D3D12_MESSAGE_SEVERITY Severities[] =
-            {
-                D3D12_MESSAGE_SEVERITY_INFO
-            };
+        D3D12_MESSAGE_SEVERITY Severities[] =
+        {
+            D3D12_MESSAGE_SEVERITY_INFO
+        };
 
-            D3D12_MESSAGE_ID DenyIds[] = {
-                D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
-                D3D12_MESSAGE_ID_MAP_INVALID_NULLRANGE,
-                D3D12_MESSAGE_ID_UNMAP_INVALID_NULLRANGE,
-            };
+        D3D12_MESSAGE_ID DenyIds[] = {
+            D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
+            D3D12_MESSAGE_ID_MAP_INVALID_NULLRANGE,
+            D3D12_MESSAGE_ID_UNMAP_INVALID_NULLRANGE,
+        };
 
-            D3D12_INFO_QUEUE_FILTER NewFilter = {};
+        D3D12_INFO_QUEUE_FILTER NewFilter = {};
 
-            NewFilter.DenyList.NumSeverities = _countof(Severities);
-            NewFilter.DenyList.pSeverityList = Severities;
-            NewFilter.DenyList.NumIDs = _countof(DenyIds);
-            NewFilter.DenyList.pIDList = DenyIds;
+        NewFilter.DenyList.NumSeverities = _countof(Severities);
+        NewFilter.DenyList.pSeverityList = Severities;
+        NewFilter.DenyList.NumIDs = _countof(DenyIds);
+        NewFilter.DenyList.pIDList = DenyIds;
 
-            ThrowIfFailed(pInfoQueue->PushStorageFilter(&NewFilter));
-        }
-    #endif
+        ThrowIfFailed(pInfoQueue->PushStorageFilter(&NewFilter));
+    }
+#endif
 
     return d3d12Device2;
 }
@@ -268,7 +274,7 @@ bool CheckTearingSupport() {
             if (FAILED(factory5->CheckFeatureSupport(
                 DXGI_FEATURE_PRESENT_ALLOW_TEARING,
                 &allowTearing, sizeof(allowTearing)
-                )))
+            )))
             {
                 allowTearing = false;
             }
@@ -350,7 +356,7 @@ ComPtr<IDXGISwapChain4> CreateSwapChain(
 
 ComPtr<ID3D12DescriptorHeap> CreateDescriptorHeap(ComPtr<ID3D12Device2> device,
     D3D12_DESCRIPTOR_HEAP_TYPE type, uint32_t numDescriptors) {
-    
+
     ComPtr<ID3D12DescriptorHeap> descriptorHeap;
 
     D3D12_DESCRIPTOR_HEAP_DESC desc = {};
@@ -358,7 +364,7 @@ ComPtr<ID3D12DescriptorHeap> CreateDescriptorHeap(ComPtr<ID3D12Device2> device,
     desc.Type = type;
 
     ThrowIfFailed(device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&descriptorHeap)));
-    
+
     return descriptorHeap;
 }
 
@@ -401,7 +407,7 @@ ComPtr<ID3D12GraphicsCommandList> CreateCommandList(ComPtr<ID3D12Device2> device
 }
 
 ComPtr<ID3D12Fence> CreateFence(ComPtr<ID3D12Device2> device) {
-    
+
     ComPtr<ID3D12Fence> fence;
 
     ThrowIfFailed(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
@@ -485,15 +491,15 @@ void Render() {
 
     commandAllocator->Reset();
     g_CommandList->Reset(commandAllocator.Get(), nullptr);
-    
+
     {
         // Present frame
-        CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(backBuffer.Get(), 
+        CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(backBuffer.Get(),
             D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
         g_CommandList->ResourceBarrier(1, &barrier);
 
-        FLOAT clearColor[] = {0.4f, 0.6f, 0.9f, 1.0f};
+        FLOAT clearColor[] = { 0.4f, 0.6f, 0.9f, 1.0f };
         CD3DX12_CPU_DESCRIPTOR_HANDLE rtv(g_RTVDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), g_CurrentBackBufferIndex, g_RTVDescriptorSize);
         g_CommandList->ClearRenderTargetView(rtv, clearColor, 0, nullptr);
 
@@ -515,12 +521,35 @@ void Render() {
 
         g_CommandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
 
-        g_CommandList->SetPipelineState(g_PipelineState.Get());
         g_CommandList->SetGraphicsRootSignature(root_signature.Get());
 
+        g_CommandList->SetPipelineState(g_LinePipelineState.Get());
+        g_CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
+
+        for (const VerticalLine& line : g_Lines) {
+            float values[] = {
+                line.x,
+                line.y,
+                line.size
+            };
+
+            g_CommandList->SetGraphicsRoot32BitConstants(0, 3, values, 0);
+            g_CommandList->DrawInstanced(2, 1, 0, 0);
+        }
+
+        g_CommandList->SetPipelineState(g_PipelineState.Get());
         g_CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-        g_CommandList->DrawInstanced(3, 1, 0, 0);
+        for (const Triangle& triangle : g_Triangles) {
+            float values[] = {
+                triangle.x,
+                triangle.y,
+                triangle.size
+            };
+
+            g_CommandList->SetGraphicsRoot32BitConstants(0, 3, values, 0);
+            g_CommandList->DrawInstanced(3, 1, 0, 0);
+        }
     }
 
     {
@@ -532,7 +561,7 @@ void Render() {
 
         ThrowIfFailed(g_CommandList->Close());
 
-        ID3D12CommandList* const commandList[] = {g_CommandList.Get()};
+        ID3D12CommandList* const commandList[] = { g_CommandList.Get() };
 
         g_CommandQueue->ExecuteCommandLists(_countof(commandList), commandList);
 
@@ -562,7 +591,7 @@ void Resize(uint32_t width, uint32_t height) {
 
         }
 
-        DXGI_SWAP_CHAIN_DESC swapChainDesc = {1, 0};
+        DXGI_SWAP_CHAIN_DESC swapChainDesc = { 1, 0 };
         ThrowIfFailed(g_SwapChain->GetDesc(&swapChainDesc));
         ThrowIfFailed(g_SwapChain->ResizeBuffers(g_NumFrames, g_ClientWidth, g_ClientHeight, swapChainDesc.BufferDesc.Format, swapChainDesc.Flags));
 
@@ -573,12 +602,13 @@ void Resize(uint32_t width, uint32_t height) {
 }
 
 void SetFullScreen(bool fullScreen) {
-    if (g_FullScreen != fullScreen) {
-        g_FullScreen = fullScreen;
+    if (g_FullScreen == fullScreen)
+        return;
 
-        if (g_FullScreen) {
-            ::GetWindowRect(g_hWnd, &g_WindowRect);
-        }
+    g_FullScreen = fullScreen;
+
+    if (g_FullScreen) {
+        ::GetWindowRect(g_hWnd, &g_WindowRect);
 
         UINT windowStyle = WS_OVERLAPPEDWINDOW & ~(WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
 
@@ -588,11 +618,13 @@ void SetFullScreen(bool fullScreen) {
         MONITORINFOEX monitorInfo = {};
         monitorInfo.cbSize = sizeof(MONITORINFOEX);
         ::GetMonitorInfo(hMonitor, &monitorInfo);
-        ::SetWindowPos(g_hWnd, HWND_TOP, 
-            monitorInfo.rcMonitor.left, monitorInfo.rcMonitor.top, 
+        ::SetWindowPos(g_hWnd, HWND_TOP,
+            monitorInfo.rcMonitor.left, monitorInfo.rcMonitor.top,
             monitorInfo.rcMonitor.right - monitorInfo.rcMonitor.left,
-            monitorInfo.rcMonitor.bottom - monitorInfo.rcMonitor.top, 
+            monitorInfo.rcMonitor.bottom - monitorInfo.rcMonitor.top,
             SWP_FRAMECHANGED | SWP_NOACTIVATE);
+
+        ::ShowWindow(g_hWnd, SW_SHOW);
 
     }
     else {
@@ -606,6 +638,7 @@ void SetFullScreen(bool fullScreen) {
 
         ::ShowWindow(g_hWnd, SW_NORMAL);
     }
+   
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -619,6 +652,30 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
             PAINTSTRUCT ps = {};
             ::BeginPaint(hwnd, &ps);
             ::EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_LBUTTONDOWN: 
+        {
+            float mouseX = static_cast<float>(GET_X_LPARAM(lParam));
+            float mouseY = static_cast<float>(GET_Y_LPARAM(lParam));
+
+            float x = 2.0f * mouseX / g_ClientWidth - 1.0f;
+            float y = 1.0f - 2.0f * mouseY / g_ClientHeight;
+
+            AddTriangle(x, y, 0.2f);
+            return 0;
+        }
+        case WM_RBUTTONDOWN:
+        {
+            float mouseX = static_cast<float>(GET_X_LPARAM(lParam));
+            float mouseY = static_cast<float>(GET_Y_LPARAM(lParam));
+
+            float x = 2.0f * mouseX / g_ClientWidth - 1.0f;
+            float y = 1.0f - 2.0f * mouseY / g_ClientHeight;
+
+            AddVerticalLine(x - 0.001f, y, 0.2f);
+            AddVerticalLine(x, y, 0.2f);
+            AddVerticalLine(x + 0.001f, y, 0.2f);
             return 0;
         }
         case WM_SYSKEYDOWN:
@@ -679,8 +736,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
 
     const wchar_t* windowClassName = L"DX12WindowClass";
 
-    ParseCommandLineArguments();
-
     EnableDebugLayer();
 
     g_TearingSupported = CheckTearingSupport();
@@ -703,11 +758,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
 
     UpdateRenderTargetViews(g_Device, g_SwapChain, g_RTVDescriptorHeap);
 
-    HANDLE fence_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-
     D3D12_ROOT_PARAMETER root_parameters[1] = {};
     root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    root_parameters[0].Constants.Num32BitValues = 1;
+    root_parameters[0].Constants.Num32BitValues = 3;
     root_parameters[0].Constants.ShaderRegister = 0;
     root_parameters[0].Constants.RegisterSpace = 0;
     root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
@@ -733,7 +786,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
     ComPtr<ID3DBlob> pixelShader;
     ComPtr<ID3DBlob> shaderErrors;
 
-    hr = D3DCompileFromFile(L"shader.hlsl", nullptr, nullptr, "VSMain", "vs_5_0", 0, 0, &vertexShader, &shaderErrors); 
+    hr = D3DCompileFromFile(L"shader.hlsl", nullptr, nullptr, "VSMain", "vs_5_0", 0, 0, &vertexShader, &shaderErrors);
 
     if (shaderErrors) {
         OutputDebugStringA(static_cast<const char*>(shaderErrors->GetBufferPointer()));
@@ -753,7 +806,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso = {};
     pso.pRootSignature = root_signature.Get();
-    pso.VS = { vertexShader->GetBufferPointer(), vertexShader->GetBufferSize()};
+    pso.VS = { vertexShader->GetBufferPointer(), vertexShader->GetBufferSize() };
     pso.PS = { pixelShader->GetBufferPointer(), pixelShader->GetBufferSize() };
 
     pso.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
@@ -771,6 +824,35 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
     pso.SampleDesc.Count = 1;
 
     ThrowIfFailed(g_Device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&g_PipelineState)));
+
+    ComPtr<ID3DBlob> lineVertexShader;
+    shaderErrors.Reset();
+
+    hr = D3DCompileFromFile(L"shader.hlsl", nullptr, nullptr, "VSLine", "vs_5_0", 0, 0, &lineVertexShader, &shaderErrors);
+
+    if (shaderErrors) {
+        OutputDebugStringA(static_cast<const char*>(shaderErrors->GetBufferPointer()));
+    }
+
+    ThrowIfFailed(hr);
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC linePso = pso;
+    ComPtr<ID3DBlob> linePixelShader;
+    shaderErrors.Reset();
+
+    hr = D3DCompileFromFile(L"shader.hlsl", nullptr, nullptr, "PSLine", "ps_5_0", 0, 0, &linePixelShader, &shaderErrors);
+
+    if (shaderErrors) {
+        OutputDebugStringA(static_cast<const char*>(shaderErrors->GetBufferPointer()));
+    }
+
+    ThrowIfFailed(hr);
+
+    linePso.VS = {lineVertexShader->GetBufferPointer(), lineVertexShader->GetBufferSize()};
+    linePso.PS = { linePixelShader->GetBufferPointer(), linePixelShader->GetBufferSize() };
+    linePso.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+
+    ThrowIfFailed(g_Device->CreateGraphicsPipelineState(&linePso, IID_PPV_ARGS(&g_LinePipelineState)));
 
     for (int i = 0; i < g_NumFrames; i++) {
         g_CommandAllocators[i] = CreateCommandAllocator(g_Device, D3D12_COMMAND_LIST_TYPE_DIRECT);
