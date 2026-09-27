@@ -1,10 +1,10 @@
 # SteamWand
 
-#### A modular, data-driven C++ engine built on axiomatic composition. Everything is an atom that lives in a defined world of potentially worlds if so wished for.
+#### A modular, data-driven C++ engine built on axiomatic composition. Everything is an atom that lives in a defined world of potentially worlds if so wished for. Rendering is driven by Directx12 and the long-term vision is potentially a more plugin-like architechture but for now it remains staticly linked modules and an tied with a main loop.
 
 ---
 
-#### Note: Usage of AI was used to make the data layout for prototyping reasons, and it is therefore unstable. There are plans to hand-code a cleaner, more consise version of this system.
+#### Note: Usage of AI was used to make the data layout for prototyping reasons, and it is therefore unstable. There are plans to make a cleaner, more consise version of this system.
 
 ## Build and run on Windows
 
