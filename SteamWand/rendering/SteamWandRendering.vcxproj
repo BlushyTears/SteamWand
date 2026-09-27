@@ -13,9 +13,9 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{D18CC36D-76DB-4D23-93A2-E7E06F46CF2B}</ProjectGuid>
-    <ProjectName>SteamWand.DataLayout</ProjectName>
-    <RootNamespace>SteamWandDataLayout</RootNamespace>
+    <ProjectGuid>{5E4C7B98-8F68-43C1-9CE5-33D84A98577F}</ProjectGuid>
+    <ProjectName>SteamWandRendering</ProjectName>
+    <RootNamespace>SteamWandRendering</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
     <PreferredToolArchitecture>x64</PreferredToolArchitecture>
   </PropertyGroup>
@@ -42,21 +42,24 @@
   <PropertyGroup Label="UserMacros" />
   <ItemDefinitionGroup>
     <ClCompile>
-      <PreprocessorDefinitions>_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
+      <AdditionalDependencies>d3d12.lib;dxgi.lib;d3dcompiler.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Main.cpp" />
-    <ClCompile Include="Benchmarks.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="Dcs.h" />
-    <ClInclude Include="Benchmarks.h" />
-    <ClInclude Include="Snake.h" />
+    <ClInclude Include="d3dx12.h" />
+    <ClInclude Include="Renderer.h" />
+    <ClInclude Include="Window.h" />
+    <!-- Retained shader prototype; the current renderer only clears the window. -->
+    <None Include="shader.hlsl" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
+  <Target Name="CopyRenderingAssets" AfterTargets="Build">
+    <Copy SourceFiles="$(ProjectDir)shader.hlsl" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

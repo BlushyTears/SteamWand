@@ -2,9 +2,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.14.36414.22
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SteamWand.Rendering", "SteamWand\rendering\SteamWand.Rendering.vcxproj", "{5E4C7B98-8F68-43C1-9CE5-33D84A98577F}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SteamWandRendering", "SteamWand\rendering\SteamWandRendering.vcxproj", "{5E4C7B98-8F68-43C1-9CE5-33D84A98577F}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SteamWand.DataLayout", "SteamWand\datalayout\SteamWand.DataLayout.vcxproj", "{D18CC36D-76DB-4D23-93A2-E7E06F46CF2B}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SteamWandDataLayout", "SteamWand\datalayout\SteamWandDataLayout.vcxproj", "{D18CC36D-76DB-4D23-93A2-E7E06F46CF2B}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{9444753C-738C-469C-A48D-DFCC68741625}"
 	ProjectSection(SolutionItems) = preProject

@@ -157,7 +157,7 @@ void runBenchmarks() {
 }
 
 void printUsage() {
-    std::cout << "SteamWand.DataLayout [--examples | --benchmarks | --snake | --help]\n"
+    std::cout << "SteamWandDataLayout [--examples | --benchmarks | --snake | --help]\n"
                  "  --examples    Small data-layout examples (default).\n"
                  "  --benchmarks  Existing full benchmark suite; use Release x64.\n"
                  "  --snake       Interactive console Snake demo.\n"
