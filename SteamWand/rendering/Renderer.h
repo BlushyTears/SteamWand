@@ -36,6 +36,7 @@ inline ComPtr<ID3D12CommandAllocator> g_CommandAllocators[g_NumFrames];
 inline ComPtr<ID3D12DescriptorHeap> g_RTVDescriptorHeap;
 inline ComPtr<ID3D12PipelineState> g_PipelineState;
 inline ComPtr<ID3D12PipelineState> g_LinePipelineState;
+inline ComPtr<ID3D12PipelineState> g_QuadPipelineState;
 
 inline UINT g_RTVDescriptorSize;
 inline UINT g_CurrentBackBufferIndex;
@@ -68,6 +69,7 @@ struct VerticalLine {
 
 inline std::vector<VerticalLine> g_Lines;
 inline std::vector<Triangle> g_Triangles;
+inline std::vector<Quad> g_Quads;
 
 inline void ThrowIfFailed(HRESULT hr) {
     if (FAILED(hr)) {
@@ -458,6 +460,20 @@ inline void Render() {
             g_CommandList->SetGraphicsRoot32BitConstants(0, 3, values, 0);
             g_CommandList->DrawInstanced(3, 1, 0, 0);
         }
+
+        g_CommandList->SetPipelineState(g_QuadPipelineState.Get());
+        g_CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+        for (const Quad& quad : g_Quads) {
+            float values[] = {
+                quad.x,
+                quad.y,
+                quad.size,
+            };
+
+            g_CommandList->SetGraphicsRoot32BitConstants(0, 3, values, 0);
+            g_CommandList->DrawInstanced(6, 1, 0, 0);
+        }
     }
 
     {
@@ -486,7 +502,6 @@ inline void Render() {
 }
 
 inline void Resize(uint32_t width, uint32_t height) {
-
     if (g_ClientWidth != width || g_ClientHeight != height) {
         g_ClientWidth = std::max(1u, width);
         g_ClientHeight = std::max(1u, height);
@@ -496,7 +511,6 @@ inline void Resize(uint32_t width, uint32_t height) {
         for (int i = 0; i < g_NumFrames; ++i) {
             g_BackBuffers[i].Reset();
             g_FrameFenceValues[i] = g_FrameFenceValues[g_CurrentBackBufferIndex];
-
         }
 
         DXGI_SWAP_CHAIN_DESC swapChainDesc = { 1, 0 };

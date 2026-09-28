@@ -37,6 +37,10 @@ void AddVerticalLine(float x, float y, float size) {
     g_Lines.push_back({ x, y, size });
 }
 
+void AddQuad(float x, float y, float size) {
+    g_Quads.push_back({ x, y, size });
+}
+
 void AddTriangle(float x, float y, float size) {
     g_Triangles.push_back({ x, y, size });
 }
@@ -76,6 +80,22 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
             AddVerticalLine(x - 0.001f, y, 0.2f);
             AddVerticalLine(x, y, 0.2f);
             AddVerticalLine(x + 0.001f, y, 0.2f);
+            return 0;
+        }
+        case WM_MOUSEWHEEL:
+        {
+            POINT mousePos = {
+                GET_X_LPARAM(lParam),
+                GET_Y_LPARAM(lParam)
+            };
+
+            if (!ScreenToClient(hwnd, &mousePos))
+                return 0;
+
+            float x = 2.0f * mousePos.x / g_ClientWidth - 1.0f;
+            float y = 1.0f - 2.0f * mousePos.y / g_ClientHeight;
+
+            AddQuad(x, y, 0.2f);
             return 0;
         }
         case WM_SYSKEYDOWN:
@@ -128,6 +148,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 
     return 0;
 }
+
+// Goal: Draw quads by combining two triangles
 
 _Use_decl_annotations_
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLine, int nCmdShow) {
@@ -204,27 +226,58 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
 
     ThrowIfFailed(hr);
 
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso = {};
-    pso.pRootSignature = root_signature.Get();
-    pso.VS = { vertexShader->GetBufferPointer(), vertexShader->GetBufferSize() };
-    pso.PS = { pixelShader->GetBufferPointer(), pixelShader->GetBufferSize() };
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC trianglePso = {};
+    trianglePso.pRootSignature = root_signature.Get();
+    trianglePso.VS = { vertexShader->GetBufferPointer(), vertexShader->GetBufferSize() };
+    trianglePso.PS = { pixelShader->GetBufferPointer(), pixelShader->GetBufferSize() };
 
-    pso.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-    pso.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-    pso.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    trianglePso.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    trianglePso.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    trianglePso.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 
-    pso.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-    pso.DepthStencilState.DepthEnable = FALSE;
-    pso.DepthStencilState.StencilEnable = FALSE;
+    trianglePso.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    trianglePso.DepthStencilState.DepthEnable = FALSE;
+    trianglePso.DepthStencilState.StencilEnable = FALSE;
 
-    pso.SampleMask = UINT_MAX;
-    pso.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    pso.NumRenderTargets = 1;
-    pso.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-    pso.SampleDesc.Count = 1;
+    trianglePso.SampleMask = UINT_MAX;
+    trianglePso.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    trianglePso.NumRenderTargets = 1;
+    trianglePso.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    trianglePso.SampleDesc.Count = 1;
 
-    ThrowIfFailed(g_Device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&g_PipelineState)));
+    ThrowIfFailed(g_Device->CreateGraphicsPipelineState(&trianglePso, IID_PPV_ARGS(&g_PipelineState)));
 
+    // quads
+    ComPtr<ID3DBlob> quadVertexShader;
+    shaderErrors.Reset();
+
+    hr = D3DCompileFromFile(L"shader.hlsl", nullptr, nullptr, "VSQuad", "vs_5_0", 0, 0, &quadVertexShader, &shaderErrors);
+
+    if (shaderErrors) {
+        OutputDebugStringA(static_cast<const char*>(shaderErrors->GetBufferPointer()));
+    }
+
+    ThrowIfFailed(hr);
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC quadPso = trianglePso;
+    ComPtr<ID3DBlob> quadPixelShader;
+    shaderErrors.Reset();
+
+    hr = D3DCompileFromFile(L"shader.hlsl", nullptr, nullptr, "PSQuad", "ps_5_0", 0, 0, &quadPixelShader, &shaderErrors);
+
+    if (shaderErrors) {
+        OutputDebugStringA(static_cast<const char*>(shaderErrors->GetBufferPointer()));
+    }
+
+    ThrowIfFailed(hr);
+
+    quadPso.VS = { quadVertexShader->GetBufferPointer(), quadVertexShader->GetBufferSize() };
+    quadPso.PS = { quadPixelShader->GetBufferPointer(), quadPixelShader->GetBufferSize() };
+    quadPso.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+
+    ThrowIfFailed(g_Device->CreateGraphicsPipelineState(&quadPso, IID_PPV_ARGS(&g_QuadPipelineState)));
+
+    // lines
     ComPtr<ID3DBlob> lineVertexShader;
     shaderErrors.Reset();
 
@@ -236,7 +289,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
 
     ThrowIfFailed(hr);
 
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC linePso = pso;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC linePso = quadPso;
     ComPtr<ID3DBlob> linePixelShader;
     shaderErrors.Reset();
 
@@ -248,11 +301,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
 
     ThrowIfFailed(hr);
 
-    linePso.VS = {lineVertexShader->GetBufferPointer(), lineVertexShader->GetBufferSize()};
+    linePso.VS = { lineVertexShader->GetBufferPointer(), lineVertexShader->GetBufferSize() };
     linePso.PS = { linePixelShader->GetBufferPointer(), linePixelShader->GetBufferSize() };
     linePso.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
 
     ThrowIfFailed(g_Device->CreateGraphicsPipelineState(&linePso, IID_PPV_ARGS(&g_LinePipelineState)));
+
+    // stop here
 
     for (int i = 0; i < g_NumFrames; i++) {
         g_CommandAllocators[i] = CreateCommandAllocator(g_Device, D3D12_COMMAND_LIST_TYPE_DIRECT);
