@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <cwchar>
 
+#include "Shapes.h"
+
 inline HWND g_hWnd = nullptr;
 inline RECT g_WindowRect = {};
 inline bool g_FullScreen = false;
@@ -116,4 +118,108 @@ inline void SetFullScreen(bool fullScreen) {
 
         ::ShowWindow(g_hWnd, SW_NORMAL);
     }
+}
+
+LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    if (g_IsInitialized)
+    {
+        switch (message)
+        {
+        case WM_PAINT:
+        {
+            PAINTSTRUCT ps = {};
+            ::BeginPaint(hwnd, &ps);
+            ::EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_LBUTTONDOWN:
+        {
+            float mouseX = static_cast<float>(GET_X_LPARAM(lParam));
+            float mouseY = static_cast<float>(GET_Y_LPARAM(lParam));
+
+            float x = 2.0f * mouseX / g_ClientWidth - 1.0f;
+            float y = 1.0f - 2.0f * mouseY / g_ClientHeight;
+
+            Shapes::AddTriangle(x, y, 0.2f);
+            return 0;
+        }
+        case WM_RBUTTONDOWN:
+        {
+            float mouseX = static_cast<float>(GET_X_LPARAM(lParam));
+            float mouseY = static_cast<float>(GET_Y_LPARAM(lParam));
+
+            float x = 2.0f * mouseX / g_ClientWidth - 1.0f;
+            float y = 1.0f - 2.0f * mouseY / g_ClientHeight;
+
+            Shapes::AddVerticalLine(x - 0.001f, y, 0.2f);
+            Shapes::AddVerticalLine(x, y, 0.2f);
+            Shapes::AddVerticalLine(x + 0.001f, y, 0.2f);
+            return 0;
+        }
+        case WM_MOUSEWHEEL:
+        {
+            POINT mousePos = {
+                GET_X_LPARAM(lParam),
+                GET_Y_LPARAM(lParam)
+            };
+
+            if (!ScreenToClient(hwnd, &mousePos))
+                return 0;
+
+            float x = 2.0f * mousePos.x / g_ClientWidth - 1.0f;
+            float y = 1.0f - 2.0f * mousePos.y / g_ClientHeight;
+
+            Shapes::AddQuad(x, y, 0.2f);
+            return 0;
+        }
+        case WM_SYSKEYDOWN:
+        case WM_KEYDOWN:
+        {
+            bool alt = (::GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+
+            switch (wParam)
+            {
+            case 'V':
+                g_VSync = !g_VSync;
+                break;
+            case VK_ESCAPE:
+                ::PostQuitMessage(0);
+                break;
+            case VK_RETURN:
+                if (alt)
+                {
+            case VK_F11:
+                SetFullScreen(!g_FullScreen);
+                }
+                break;
+            }
+        }
+        break;
+        case WM_SYSCHAR:
+            break;
+        case WM_SIZE:
+        {
+            RECT clientRect = {};
+            ::GetClientRect(g_hWnd, &clientRect);
+
+            int width = clientRect.right - clientRect.left;
+            int height = clientRect.bottom - clientRect.top;
+
+            Resize(width, height);
+        }
+        break;
+        case WM_DESTROY:
+            ::PostQuitMessage(0);
+            break;
+        default:
+            return ::DefWindowProcW(hwnd, message, wParam, lParam);
+        }
+    }
+    else
+    {
+        return ::DefWindowProcW(hwnd, message, wParam, lParam);
+    }
+
+    return 0;
 }

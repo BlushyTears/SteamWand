@@ -14,6 +14,7 @@
 #include <exception>
 
 #include "d3dx12.h"
+#include "Shapes.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -48,28 +49,6 @@ inline HANDLE g_FenceEvent;
 
 inline bool g_VSync = true;
 inline bool g_TearingSupported = false;
-
-struct Triangle {
-    float x;
-    float y;
-    float size;
-};
-
-struct Quad {
-    float x;
-    float y;
-    float size;
-};
-
-struct VerticalLine {
-    float x;
-    float y;
-    float size;
-};
-
-inline std::vector<VerticalLine> g_Lines;
-inline std::vector<Triangle> g_Triangles;
-inline std::vector<Quad> g_Quads;
 
 inline void ThrowIfFailed(HRESULT hr) {
     if (FAILED(hr)) {
@@ -436,7 +415,7 @@ inline void Render() {
         g_CommandList->SetPipelineState(g_LinePipelineState.Get());
         g_CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
 
-        for (const VerticalLine& line : g_Lines) {
+        for (const Shapes::VerticalLine& line : Shapes::g_Lines) {
             float values[] = {
                 line.x,
                 line.y,
@@ -450,7 +429,7 @@ inline void Render() {
         g_CommandList->SetPipelineState(g_PipelineState.Get());
         g_CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-        for (const Triangle& triangle : g_Triangles) {
+        for (const Shapes::Triangle& triangle : Shapes::g_Triangles) {
             float values[] = {
                 triangle.x,
                 triangle.y,
@@ -464,7 +443,7 @@ inline void Render() {
         g_CommandList->SetPipelineState(g_QuadPipelineState.Get());
         g_CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-        for (const Quad& quad : g_Quads) {
+        for (const Shapes::Quad& quad : Shapes::g_Quads) {
             float values[] = {
                 quad.x,
                 quad.y,
@@ -521,4 +500,56 @@ inline void Resize(uint32_t width, uint32_t height) {
 
         UpdateRenderTargetViews(g_Device, g_SwapChain, g_RTVDescriptorHeap);
     }
+}
+
+inline ComPtr<ID3DBlob> CompileShader(const wchar_t* file, const char* entryPoint, const char* target) {
+    ComPtr<ID3DBlob> shader;
+    ComPtr<ID3DBlob> errors;
+
+    HRESULT hr = D3DCompileFromFile(
+        file, nullptr, nullptr,
+        entryPoint, target,
+        0, 0,
+        &shader, &errors);
+
+    if (errors) {
+        OutputDebugStringA(
+            static_cast<const char*>(errors->GetBufferPointer()));
+    }
+
+    ThrowIfFailed(hr);
+    return shader;
+}
+
+inline void CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC& pso,
+    std::string vertexShaderProgram, std::string pixelShaderProgram,
+    ComPtr<ID3D12PipelineState>& g_GenericPipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE topologyType) {
+
+    ComPtr<ID3DBlob> shaderErrors;
+
+    auto vertexShader = CompileShader(L"Shapes.hlsl", vertexShaderProgram.c_str(), "vs_5_0");
+    auto pixelShader = CompileShader(L"Shapes.hlsl", pixelShaderProgram.c_str(), "ps_5_0");
+
+    // This pso is hard coded, at some point we probably want this to lie in some better place
+    pso.pRootSignature = root_signature.Get();
+    pso.VS = { vertexShader->GetBufferPointer(), vertexShader->GetBufferSize() };
+    pso.PS = { pixelShader->GetBufferPointer(), pixelShader->GetBufferSize() };
+
+    pso.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    pso.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    pso.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+
+    pso.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    pso.DepthStencilState.DepthEnable = FALSE;
+    pso.DepthStencilState.StencilEnable = FALSE;
+
+    pso.SampleMask = UINT_MAX;
+    pso.PrimitiveTopologyType = topologyType;
+    pso.NumRenderTargets = 1;
+    pso.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    pso.SampleDesc.Count = 1;
+
+    ThrowIfFailed(g_Device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&g_GenericPipelineState)));
+
+    shaderErrors.Reset();
 }

@@ -53,13 +53,17 @@
     <ClCompile Include="Main.cpp" />
     <ClInclude Include="d3dx12.h" />
     <ClInclude Include="Renderer.h" />
+    <ClInclude Include="Shapes.h" />
     <ClInclude Include="Window.h" />
     <!-- Retained shader prototype; the current renderer only clears the window. -->
-    <None Include="shader.hlsl" />
+    <None Include="Shapes.hlsl" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
   <Target Name="CopyRenderingAssets" AfterTargets="Build">
-    <Copy SourceFiles="$(ProjectDir)shader.hlsl" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <RenderingShader Include="$(ProjectDir)*.hlsl" />
+    </ItemGroup>
+    <Copy SourceFiles="@(RenderingShader)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 </Project>
