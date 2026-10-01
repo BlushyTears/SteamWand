@@ -52,6 +52,7 @@
   <ItemGroup>
     <ClCompile Include="Main.cpp" />
     <ClInclude Include="d3dx12.h" />
+    <ClInclude Include="Input.h" />
     <ClInclude Include="Renderer.h" />
     <ClInclude Include="Shapes.h" />
     <ClInclude Include="Window.h" />

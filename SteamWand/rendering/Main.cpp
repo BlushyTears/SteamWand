@@ -31,6 +31,7 @@ using namespace Microsoft::WRL;
 
 #include "Renderer.h"
 #include "Window.h"
+#include "Input.h"
 
 ComPtr<ID3D12RootSignature> CreateShapeRootSignature(ComPtr<ID3D12Device2> g_Device, HRESULT& hr) {
 
@@ -117,14 +118,58 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
     MSG msg = {};
 
     while (msg.message != WM_QUIT) {
-        if (::PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+        inputHandler.BeginFrame();
+
+        while (::PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+            if (msg.message == WM_QUIT) {
+                break;
+            }
             ::TranslateMessage(&msg);
             ::DispatchMessage(&msg);
         }
-        else {
-            Update();
-            Render();
+
+        if (msg.message == WM_QUIT) {
+            break;
         }
+
+        if (inputHandler.isKeyPressed(Button::Escape)) {
+            break;
+        }
+
+        if (inputHandler.isKeyPressed(Button::V)) {
+            g_VSync = !g_VSync;
+        }
+
+        if (inputHandler.isKeyPressed(Button::F11) ||
+            (inputHandler.isKeyDown(Button::Alt) && inputHandler.isKeyPressed(Button::Enter))) {
+            SetFullScreen(!g_FullScreen);
+        }
+
+        if (inputHandler.isKeyPressed(Button::MouseLeft)) {
+            float x = 2.0f * inputHandler.mouseX / g_ClientWidth - 1.0f;
+            float y = 1.0f - 2.0f * inputHandler.mouseY / g_ClientHeight;
+
+            Shapes::AddTriangle(x, y, 0.2f);
+        }
+
+        if (inputHandler.isKeyPressed(Button::MouseRight)) {
+            float x = 2.0f * inputHandler.mouseX / g_ClientWidth - 1.0f;
+            float y = 1.0f - 2.0f * inputHandler.mouseY / g_ClientHeight;
+
+            Shapes::AddVerticalLine(x - 0.001f, y, 0.2f);
+            Shapes::AddVerticalLine(x, y, 0.2f);
+            Shapes::AddVerticalLine(x + 0.001f, y, 0.2f);
+        }
+
+        if (inputHandler.isMouseScrolling()) {
+            float x = 2.0f * inputHandler.mouseX / g_ClientWidth - 1.0f;
+            float y = 1.0f - 2.0f * inputHandler.mouseY / g_ClientHeight;
+
+            Shapes::AddQuad(x, y, 0.2f);
+        }
+
+        Update();
+        Render();
     }
 
     Flush(g_CommandQueue, g_Fence, g_FenceValue, g_FenceEvent);
