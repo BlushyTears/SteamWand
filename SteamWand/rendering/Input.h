@@ -10,6 +10,7 @@
 #include <array>
 
 #include <windowsx.h>
+#include "Renderer.h"
 
 enum class Button {
     // Mouse buttons

@@ -4,20 +4,16 @@
 
 ---
 
-#### Note: Usage of AI was used to help make the data layout for prototyping reasons, and it is therefore unstable. There are plans to make a cleaner, more consise version of this system.
+#### Note: AI was used to help prototype the data layout. It has since had a safety and readability pass, but it is still early code.
 
 ## Build and run on Windows
 
-Open **SteamWand.sln** in Visual Studio 2022 (Other versions hasn't been tested) and right click any either of the two projects and click "Set as startup project". One solution contains both projects: There is no need to switch solution files or edit an entry point.
+Open **SteamWand.sln** in Visual Studio 2022 (Other versions hasn't been tested) and right click **SteamWandDataLayout** or **SteamWandRendering** and click "Set as startup project". One solution contains all projects: There is no need to switch solution files or edit an entry point.
 
 ## Core Philosophy
 
-- **Use one world or many worlds:** Prototype with a single `World`, nest worlds inside other worlds or keep many decoupled worlds based on your needs.
-- **Pay for what you use:** Data is stored per type in contiguous slabs, and nothing is allocated until you create it.
-- **Compose freely:** Storage is runtime-driven, any C++ type works out of the box.
-- **Stay flexible:** Worlds can be nested, moved, and accessed directly when you want maximum control.
-- **Respects the programmer:** SteamWand aims to be an engine that lets the user do more, not less with infinite guardrails.
-- **Takes lessons from ecs, oop, composition, DOD:** without necessarily being in any of those categories
+Use one World or many Worlds based on your needs. Each World owns its local data, stored in slabs grouped by type and allocated when you first insert that type. Custom C++ types are registered automatically. Keep related fields in one record, and use typed Atoms when values need separate lifetimes. Worlds can be nested, moved and accessed directly for bulk work.
+
 ---
 
 ## Core Types
@@ -26,53 +22,62 @@ SteamWand centers around a small set of building blocks:
 
 - `World`: owns type slabs, tracks storage, and handles deferred cleanup.
 - `Slab<T>`: per-type storage with aligned allocation and a presence bitmap.
-- `Atom`: a lightweight handle into a slab.
-- `iter<>()`: iteration over one or more component types.
+- `Atom<T>`: a typed handle into a slab, checked against its World and generation.
+- `WorldRef`: a World reference that follows its storage through moves.
+- `iter<T>()`: iteration over the live values of one type.
 
 ---
 
 ## Creating Atoms
 
-`World::add<T>()` returns an `Atom` referencing the slot the component lives in:
+`World::add<T>()` returns an `Atom<T>` referencing the stored value:
 
 ```cpp
+struct PlayerData { int level; float speed; };
+
 World world(1024);
 
-Atom intAtom = world.add<int32_t>(42);
-Atom playerAtom = world.add<PlayerData>({10, 5.5f});
+Atom<int32_t> intAtom = world.add<int32_t>(42);
+Atom<PlayerData> playerAtom = world.add<PlayerData>({10, 5.5f});
 ```
+
+Use `emplace<T>(args...)` to construct a value directly in its slot.
 
 ---
 
 ## Safe Atom Access
 
 ```cpp
-int32_t* value = world.get<int32_t>(intAtom);
+int32_t* value = world.get(intAtom);
 if (value) {
     std::cout << "Value: " << *value << "\n";
 }
 ```
 
-Returns `nullptr` if the atom has been freed.
+Returns `nullptr` if the Atom has been freed or belongs to another World. Default Atoms are invalid. Reusing a slot changes its generation, so an earlier Atom cannot target its replacement. `world.is_live(atom)` and `atom.is_valid()` check whether the value still exists.
 
 ---
 
-## Direct Slab Access
+## Raw Slot Access
 
-Fast bulk iteration for systems:
+Access a World's local slots directly:
 
 ```cpp
-int32_t* ints = world.get_array<int32_t>();
-for (size_t i = 0; i < world.size<int32_t>(); ++i) {
-    ints[i] += 10;
+RawSlots<int32_t> ints = world.raw_slots<int32_t>();
+for (uint32_t i = 0; i < ints.extent; ++i) {
+    if (ints.is_live(i)) {
+        ints.data[i] += 10;
+    }
 }
 ```
+
+The extent includes holes. `size<T>()` counts live values, so it is not a raw array bound.
 
 ---
 
 ## Iteration
 
-`World::iter<T>()` for a single type, `iter<A, B, and so on>()` for multiple types:
+`World::iter<T>()` returns a view over the live values of one type:
 
 ```cpp
 // Single type
@@ -80,34 +85,67 @@ for (auto& hp : world.iter<int32_t>()) {
     hp -= 1;
 }
 
-// Multiple types (yields only entries present in every slab):
-for (auto [hp, pos, speed] : world.iter<int32_t, Vec3, float>()) {
-    if (hp > 0) {
-        pos.x += speed * 0.016f;
-        hp -= 1;
+struct Vec3 { float x, y, z; };
+
+struct Body {
+    int32_t hp;
+    Vec3 position;
+    float speed;
+};
+
+// Related fields belong to the same record.
+for (auto& body : world.iter<Body>()) {
+    if (body.hp > 0) {
+        body.position.x += body.speed * 0.016f;
+        body.hp -= 1;
     }
 }
 ```
 
----
+Independent slabs do not imply a relationship between values at matching slots. Values can also refer to one another through typed Atoms when they need separate lifetimes.
 
-## Reverse Lookup
-
-Each slot remembers which World it was added to:
+Use `iter_atoms<T>()` when a loop needs the handle:
 
 ```cpp
-int32_t* ints = world.get_array<int32_t>();
-for (size_t i = 0; i < world.size<int32_t>(); ++i) {
-    World* owner = world.get_slab<int32_t>().get_world(i);
-    std::cout << "Index " << i << ": " << ints[i] << " (owner: " << owner << ")\n";
+for (auto [atom, body] : world.iter_atoms<Body>()) {
+    if (body.hp <= 0) {
+        world.queue_free(atom);
+    }
+}
+world.cleanup();
+```
+
+You can edit values and queue removals during iteration. Const Worlds give const references. Finish the views before adding, clearing, applying cleanup or moving their World; conflicting operations throw `std::logic_error`. Keep a view alive and do not move it while using its iterators. Destroying a World with an active view, including a view in an owned child, terminates the program.
+
+---
+
+## Direct World Access
+
+Get the World directly from an Atom when you want to operate on its local data:
+
+```cpp
+World* owner = intAtom.world();
+if (owner) {
+    for (auto& hp : owner->iter<int32_t>()) {
+        hp += 10;
+    }
 }
 ```
+
+`atom.world()` returns its World while that World exists, even if the individual value has been removed. A `WorldRef` refers to that World without a particular value:
+
+```cpp
+WorldRef room = world.ref();
+World* owner = room.get();
+```
+
+A `WorldRef` follows the storage through moves, but does not keep the World alive. `get()` returns `nullptr` after its owner is destroyed. A raw World pointer is borrowed; get it again after moving the World.
 
 ---
 
 ## World of Worlds
 
-Store worlds as components for hierarchy (similar concept to Godot scenes). Build a child World standalone, then attach it with `std::move`:
+Store Worlds inside other Worlds for ownership and grouping. Build a child World standalone, then attach it:
 
 ```cpp
 World universe(10);
@@ -115,20 +153,24 @@ World universe(10);
 World nested(100);
 nested.add<int32_t>(100);
 
-universe.attach_world(std::move(nested));   // nested is now empty
+World& nestedWorld = universe.attach_world(nested);   // nested is now empty
 ```
 
-`std::move` implies that the original world is discarded.
+Attachment moves the storage internally and leaves the source World empty. Existing Atoms and WorldRefs follow it. The moved-from World is reusable; its next insertion gets a fresh identity. Moving into an existing World invalidates that destination's earlier Atoms. Self-attachment and cycles through directly stored Worlds are rejected.
+
+Worlds embedded inside other stored types are not tracked by recursive cleanup or ownership-cycle checks. Store child Worlds directly as shown above.
+
+---
 
 ## Atom Invalidation
 
 ```cpp
-Atom a = world.add<int32_t>(42);
-world.get<int32_t>(a);          // returns pointer
+Atom<int32_t> a = world.add<int32_t>(42);
+world.get(a);          // returns pointer
 
-world.queue_free<int32_t>(a);
+world.queue_free(a);
 world.cleanup();
-world.get<int32_t>(a);          // returns nullptr
+world.get(a);          // returns nullptr
 ```
 
 ---
@@ -149,6 +191,8 @@ world.add<int32_t>(7); // reuses the same memory
 
 `discard()` empties the World. Anything you added is gone, but the World itself is ready to use again. Atoms from before the discard no longer point at anything.
 
+Use `clear<T>()` to clear one type and cancel its queued removals. `cleanup()` applies this World's queued removals; `cleanup_tree()` also processes directly stored child Worlds recursively. Scope destruction releases live values and owned children automatically. Stored destructors must not throw or call operations that change their World's storage.
+
 ---
 
 ### Custom Types
@@ -157,46 +201,43 @@ world.add<int32_t>(7); // reuses the same memory
 void example() {
     World world(1024);
 
-    struct PlayerData {int level; float speed;};
-    world.add<PlayerData>({10, 5.5f});
-    world.add<int32_t>(0);
+    struct PlayerData {int level; float speed; int32_t score;};
+    world.add<PlayerData>({10, 5.5f, 0});
 
-    for (auto [pd, score] : world.iter<PlayerData, int32_t>()) {
+    for (auto& pd : world.iter<PlayerData>()) {
         pd.speed += 0.1f;
-        score += pd.level;
+        pd.score += pd.level;
     }
 }
 ```
 
 ---
 
-## Current Characteristics
-
-- **Dynamic typing**: Any C++ type via `TypeInfo<T>::id()`
-- **Range-for iteration**: `iter<Types...>()` over single or multiple component types ecs-style
-- **Bitmask query**: Multi-type iteration includes types via bitmask access
-- **No boilerplate**: macros, type registration
-
 ## Technical considerations
 
-- Slabs are fixed capacity. The `cap` you pass to `World(cap)` is a hard limit per slab; exceeding it asserts. Pointers from `get_array<T>()` and references from `iter` are stable for the World's lifetime. Most likely the plan is to use a fixed-sized array with linked list if we exceed the size.
-- Deleted slots are not reclaimed — `next_idx` only goes up, leaving holes in the slab over time. Two workarounds when this matters:
-  - **Discard the World.** Call `discard()` (or let it go out of scope) and start fresh. Cheap, common, and matches how most game state is naturally scoped (per scene, per level, per round).
-  - **Don't delete — disable.** Set an `alive` flag on the component instead of removing it. Keeps the slab tightly packed for cache-friendly iteration.
+Slabs are fixed capacity. The `cap` you pass to `World(cap)` is a hard limit per type; exceeding it throws `std::length_error` in Debug and Release. Zero capacity is rejected.
 
-Defragmentation isn't implemented at the moment because slot-correlation across slabs is part of the idea: components added together share an index similarly to how ecs does backwards searching. It's probably possible to move the elements of all slabs at the same time, but it needs more thought.
+Deleted slots are reused without moving other live values. Slots occupy contiguous memory, but deletion can leave holes. Removing, clearing, discarding or destroying a value ends its lifetime. Pointers to other live values survive slot reuse and World moves. Raw slot access does not block World operations; keep track of when those pointers are valid.
+
+World data is not thread-safe. Synchronize access yourself if you use it from multiple threads. Type registration is synchronized, but runtime type IDs are not stable identifiers for saved files.
+
+The data-layout runner supports `--examples`, `--benchmarks`, `--snake` and `--help`. Benchmarks compare equivalent World/vector work, report setup and traversal separately and verify their checksums. Windows x64, MSVC and C++20 are the current supported target.
+
+The focused regression program can be built from a Visual Studio Developer Command Prompt at the repository root:
+
+```text
+cl /nologo /std:c++20 /EHsc /W4 SteamWand\datalayout\tests\DcsTests.cpp
+DcsTests.exe
+```
 
 ---
 
 ## Planned Features
 
-- Non-disruptive defragmentation
-- Coroutines
-- Serialization
-- Atom in iteration (so iter loops can know which slot they're on)
+Dense packing, slab growth, coroutines and serialization remain future work.
 
 ---
 
 ## License
 
-Open source forever. Use it however you like — no strings attached.
+Open source forever. Use it however you like. No strings attached.

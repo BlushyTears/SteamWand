@@ -53,7 +53,7 @@ private:
     World world;
     int dirX, dirY, nextX, nextY;
     int score, length, headX, headY;
-    Atom appleAtom;
+    Atom<Apple> appleAtom;
 
     void setup() {
         world = World(1024);
@@ -65,7 +65,7 @@ private:
         length = 3;
         headX = COLS / 2;
         headY = ROWS / 2;
-        appleAtom = Atom::invalid();
+        appleAtom = {};
 
         for (int i = 0; i < length; i++) {
             world.add<Segment>({ headX - i, headY, length - i });
@@ -158,12 +158,9 @@ private:
                 segment.lifetime--;
             }
 
-            // Remove tail segments that have expired
-            auto& slab = world.get_slab<Segment>();
-            for (uint32_t i = 0; i < slab.next_idx; ++i) {
-                Atom handle = { i };
-                if (slab.data[i].lifetime <= 0) {
-                    world.queue_free<Segment>(handle);
+            for (auto [atom, segment] : world.iter_atoms<Segment>()) {
+                if (segment.lifetime <= 0) {
+                    world.queue_free(atom);
                 }
             }
 

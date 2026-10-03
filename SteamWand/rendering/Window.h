@@ -12,6 +12,8 @@ inline HWND g_hWnd = nullptr;
 inline RECT g_WindowRect = {};
 inline bool g_FullScreen = false;
 
+inline void Resize(uint32_t width, uint32_t height);
+
 inline HWND CreateAppWindow(const wchar_t* windowClassName, HINSTANCE hInst,
     const wchar_t* windowTitle, uint32_t width, uint32_t height) {
 
@@ -120,7 +122,7 @@ inline void SetFullScreen(bool fullScreen) {
     }
 }
 
-LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+inline LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     inputHandler.CheckInputs(hwnd, message, wParam, lParam);
 
