@@ -16,6 +16,14 @@
 #include "d3dx12.h"
 #include "Shapes.h"
 
+#include "../math/Vec3.h"
+#include "../math/Vec4.h"
+#include "../math/Mat4.h"
+
+#include <cmath>
+
+#include "Camera.h"
+
 using Microsoft::WRL::ComPtr;
 
 inline constexpr uint8_t g_NumFrames = 3;
@@ -24,7 +32,6 @@ inline bool g_UseWarp = false;
 
 inline uint32_t g_ClientWidth = 1280;
 inline uint32_t g_ClientHeight = 720;
-
 
 inline bool g_IsInitialized = false;
 
@@ -42,6 +49,7 @@ inline ComPtr<ID3D12DescriptorHeap> g_RTVDescriptorHeap;
 inline ComPtr<ID3D12PipelineState> g_PipelineState;
 inline ComPtr<ID3D12PipelineState> g_LinePipelineState;
 inline ComPtr<ID3D12PipelineState> g_QuadPipelineState;
+inline ComPtr<ID3D12PipelineState> g_CubePipelineState;
 
 inline UINT g_RTVDescriptorSize;
 inline UINT g_CurrentBackBufferIndex;
@@ -364,6 +372,24 @@ inline void Update() {
     auto t1 = clock.now();
     auto deltaTime = t1 - t0;
     t0 = t1;
+    g_CubeAngle += std::chrono::duration<float>(deltaTime).count();
+
+    if (inputHandler.isKeyDown(Button::MouseRight)) {
+        float step = 3.0f * std::chrono::duration<float>(deltaTime).count();
+
+        vec3 forward = GetCameraForward();
+        vec3 right(std::cos(g_CameraYaw), 0.0f, -std::sin(g_CameraYaw));
+
+        vec3 movement(0.0f, 0.0f, 0.0f);
+
+        if (inputHandler.isKeyDown(Button::W)) movement += forward;
+        if (inputHandler.isKeyDown(Button::S)) movement -= forward;
+        if (inputHandler.isKeyDown(Button::A)) movement -= right;
+        if (inputHandler.isKeyDown(Button::D)) movement += right;
+
+        if (movement.dot(movement) > 0.0f)
+            g_CameraPosition += normalize(movement) * step;
+    }
 
     elapsedSeconds += deltaTime.count() * 1e-9;
 
@@ -416,6 +442,10 @@ inline void Render() {
 
         g_CommandList->SetGraphicsRootSignature(root_signature.Get());
 
+        mat4 viewProjection = GetCameraPosition(g_ClientWidth, g_ClientHeight) * GetCameraView();
+
+        g_CommandList->SetGraphicsRoot32BitConstants(0, 16, &viewProjection.vec[0].x, 4);
+
         g_CommandList->SetPipelineState(g_LinePipelineState.Get());
         g_CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
 
@@ -456,6 +486,20 @@ inline void Render() {
 
             g_CommandList->SetGraphicsRoot32BitConstants(0, 3, values, 0);
             g_CommandList->DrawInstanced(6, 1, 0, 0);
+        }
+
+        g_CommandList->SetPipelineState(g_CubePipelineState.Get());
+
+        for (const Shapes::Cube& cube : Shapes::g_Cubes) {
+            float values[] = {
+                cube.x,
+                cube.y,
+                cube.size,
+                g_CubeAngle
+            };
+
+            g_CommandList->SetGraphicsRoot32BitConstants(0, 4, values, 0);
+            g_CommandList->DrawInstanced(36, 1, 0, 0);
         }
     }
 
@@ -505,7 +549,6 @@ inline void Resize(uint32_t width, uint32_t height) {
         UpdateRenderTargetViews(g_Device, g_SwapChain, g_RTVDescriptorHeap);
     }
 }
-
 
 inline ComPtr<ID3DBlob> CompileShader(const wchar_t* file, const char* entryPoint, const char* target) {
     ComPtr<ID3DBlob> shader;
@@ -565,7 +608,7 @@ inline ComPtr<ID3D12RootSignature> CreateShapeRootSignature(ComPtr<ID3D12Device2
 
     D3D12_ROOT_PARAMETER root_parameters[1] = {};
     root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    root_parameters[0].Constants.Num32BitValues = 3;
+    root_parameters[0].Constants.Num32BitValues = 20;
     root_parameters[0].Constants.ShaderRegister = 0;
     root_parameters[0].Constants.RegisterSpace = 0;
     root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
@@ -589,7 +632,6 @@ inline ComPtr<ID3D12RootSignature> CreateShapeRootSignature(ComPtr<ID3D12Device2
 
     return signature;
 }
-
 
 inline void SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLine, int nCmdShow) {
     SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -620,6 +662,7 @@ inline void SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR l
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC trianglePso = {};
     D3D12_GRAPHICS_PIPELINE_STATE_DESC quadPso = {};
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC cubePso = {};
     D3D12_GRAPHICS_PIPELINE_STATE_DESC linePso = {};
     HRESULT hr;
 
@@ -627,6 +670,7 @@ inline void SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR l
 
     CreatePipelinePrimitive(trianglePso, "VSMain", "PSMain", g_PipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE);
     CreatePipelinePrimitive(quadPso, "VSQuad", "PSQuad", g_QuadPipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE);
+    CreatePipelinePrimitive(cubePso, "VSCube", "PSCube", g_CubePipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE);
     CreatePipelinePrimitive(linePso, "VSLine", "PSLine", g_LinePipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE);
 
     for (int i = 0; i < g_NumFrames; i++) {
@@ -640,6 +684,4 @@ inline void SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR l
 
     g_IsInitialized = true;
     ::ShowWindow(g_hWnd, SW_SHOW);
-
-
 }

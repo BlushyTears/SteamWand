@@ -128,6 +128,9 @@ struct InputHandler {
     std::array<ButtonState, 256> all_buttons{};
 
     void BeginFrame() {
+        previousMouseX = mouseX;
+        previousMouseY = mouseY;
+
         for (auto& button : all_buttons) {
             button.pressed = false;
             button.released = false;
@@ -231,6 +234,8 @@ void CheckInputs(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     int scrollDelta = 0;
     int mouseX = 0;
     int mouseY = 0;
+    int previousMouseX = 0;
+    int previousMouseY = 0;
 };
 
 // This should probably be stored somewhere else, but since we're early it seems pointless to think ahead for refactors like this

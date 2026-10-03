@@ -52,6 +52,16 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
             ::DispatchMessage(&msg);
         }
 
+        if (inputHandler.isKeyDown(Button::MouseRight) && !inputHandler.isKeyPressed(Button::MouseRight)) {
+
+            float sensitivity = 0.003f;
+
+            g_CameraYaw += (inputHandler.mouseX - inputHandler.previousMouseX) * sensitivity;
+            g_CameraPitch -= (inputHandler.mouseY - inputHandler.previousMouseY) * sensitivity;
+
+            g_CameraPitch = std::clamp(g_CameraPitch, -1.5f, 1.5f);
+        }
+
         if (msg.message == WM_QUIT) {
             break;
         }
@@ -76,13 +86,20 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
             Shapes::AddTriangle(x, y, 0.2f);
         }
 
-        if (inputHandler.isKeyPressed(Button::MouseRight)) {
+        if (inputHandler.isKeyPressed(Button::X)) {
             float x = 2.0f * inputHandler.mouseX / g_ClientWidth - 1.0f;
             float y = 1.0f - 2.0f * inputHandler.mouseY / g_ClientHeight;
 
             Shapes::AddVerticalLine(x - 0.001f, y, 0.2f);
             Shapes::AddVerticalLine(x, y, 0.2f);
             Shapes::AddVerticalLine(x + 0.001f, y, 0.2f);
+        }
+
+        if (inputHandler.isKeyPressed(Button::C)) {
+            float x = 2.0f * inputHandler.mouseX / g_ClientWidth - 1.0f;
+            float y = 1.0f - 2.0f * inputHandler.mouseY / g_ClientHeight;
+
+            Shapes::AddCube(x, y, 0.2f);
         }
 
         if (inputHandler.isMouseScrolling()) {

@@ -244,7 +244,7 @@ mat4 rotationaxis(const vec3& v, const float rad) {
     return transpose(result);
 }
 
-mat4 perspective(float fovy, float aspect, float near, float far) {
+mat4 perspective(float fovy, float aspect, float nearPlane, float farPlane) {
     float tan_half_fovy = tan(fovy / 2.0f);
 
     // Initialize as an identity matrix
@@ -252,7 +252,7 @@ mat4 perspective(float fovy, float aspect, float near, float far) {
 
     result[0] = vec4(1.0f / (aspect * tan_half_fovy), 0.0f, 0.0f, 0.0f);
     result[1] = vec4(0.0f, 1.0f / tan_half_fovy, 0.0f, 0.0f);
-    result[2] = vec4(0.0f, 0.0f, (far + near) / (far - near), 2.0f * far * near / (far - near));
+    result[2] = vec4(0.0f, 0.0f, (farPlane + nearPlane) / (farPlane - nearPlane), 2.0f * farPlane * nearPlane / (farPlane - nearPlane));
     result[3] = vec4(0.0f, 0.0f, -1.0f, 0.0f);
 
     return result;
