@@ -38,5 +38,22 @@ namespace Shapes {
 
         return mesh;
     }
+
+    inline Mesh<vec3>MakeSomething() {
+        Mesh<vec3> mesh;
+
+        mesh.vertices = {
+        {-0.5f, -0.5f, -0.5f},
+        { 0.5f, -0.5f, -0.5f},
+        { 0.5f,  0.5f, -0.5f},
+        };
+
+        mesh.indices = {
+            0, 1, 2,  0, 2, 3,
+            4, 6, 5,  4, 7, 6,
+        };
+
+        return mesh;
+    }
 }
 

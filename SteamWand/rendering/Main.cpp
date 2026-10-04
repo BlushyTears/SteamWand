@@ -34,6 +34,27 @@
 
 using namespace Microsoft::WRL;
 
+void MoveAround(Renderer renderer) {
+    g_CubeAngle += std::chrono::duration<float>(renderer.deltaTime).count();
+
+    if (inputHandler.isKeyDown(Button::MouseRight)) {
+        float step = 3.0f * std::chrono::duration<float>(renderer.deltaTime).count();
+
+        vec3 forward = GetCameraForward();
+        vec3 right(std::cos(g_CameraYaw), 0.0f, -std::sin(g_CameraYaw));
+
+        vec3 movement(0.0f, 0.0f, 0.0f);
+
+        if (inputHandler.isKeyDown(Button::W)) movement += forward;
+        if (inputHandler.isKeyDown(Button::S)) movement -= forward;
+        if (inputHandler.isKeyDown(Button::A)) movement -= right;
+        if (inputHandler.isKeyDown(Button::D)) movement += right;
+
+        if (movement.dot(movement) > 0.0f)
+            g_CameraPosition += normalize(movement) * step;
+    }
+}
+
 _Use_decl_annotations_
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLine, int nCmdShow) {
 
@@ -43,6 +64,15 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
 
     auto cubeData = Shapes::MakeCube();
     GPUMesh cubeMesh = renderer.UploadMesh(cubeData);
+    renderer.meshes.push_back({ cubeMesh, vec3(1, 2, 1) });
+
+    auto cubeData2 = Shapes::MakeCube();
+    GPUMesh cubeMesh2 = renderer.UploadMesh(cubeData2);
+    renderer.meshes.push_back({ cubeMesh2, vec3(4, 2, 2) });
+
+    auto somethingData = Shapes::MakeSomething();
+    GPUMesh somethingMesh = renderer.UploadMesh(somethingData);
+    renderer.meshes.push_back({ somethingMesh, vec3(-1, -1, 1) });
 
     MSG msg = {};
 
@@ -58,7 +88,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
         }
 
         if (inputHandler.isKeyDown(Button::MouseRight) && !inputHandler.isKeyPressed(Button::MouseRight)) {
-
             float sensitivity = 0.003f;
 
             g_CameraYaw += (inputHandler.mouseX - inputHandler.previousMouseX) * sensitivity;
@@ -90,8 +119,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
         if (inputHandler.isMouseScrolling()) {
         }
 
-        Update();
-        renderer.Render(cubeMesh);
+        MoveAround(renderer);
+        renderer.Update();
+        renderer.Render();
     }
 
     renderer.Shutdown();

@@ -1,7 +1,11 @@
 #include "../Dcs.h"
 #include <array>
+#include <cstdlib>
+#include <exception>
 #include <iostream>
 #include <latch>
+#include <process.h>
+#include <string_view>
 #include <thread>
 #include <unordered_set>
 
@@ -135,6 +139,7 @@ void identity_and_reuse() {
 
 void construction_and_destruction() {
     rejects<std::invalid_argument>([] { World zero(0); });
+    rejects<std::invalid_argument>([] { Slab<int> zero(0); });
     {
         World world(1);
         rejects<std::runtime_error>([&] { world.emplace<Counted>(-1); });
@@ -204,6 +209,7 @@ void worlds_and_ownership() {
     CHECK(root.size<int>() == 0 && room.size<int>() == 1);
     rejects<std::logic_error>([&] { root.attach_world(std::move(root)); });
     rejects<std::logic_error>([&] { room.add<World>(std::move(root)); });
+    rejects<std::logic_error>([&] { room.emplace<World>(std::move(root)); });
     rejects<std::logic_error>([&] { room = std::move(root); });
     CHECK(*room.get(atom) == 7);
     room.queue_free(atom);
@@ -247,6 +253,8 @@ void iteration_and_mutation() {
         rejects<std::logic_error>([&] { world.clear<int>(); });
         rejects<std::logic_error>([&] { world.discard(); });
         rejects<std::logic_error>([&] { World other(std::move(world)); });
+        rejects<std::logic_error>([&] { world = World(); });
+        CHECK(world.size<int>() == 130 && world.size<float>() == 0);
     }
     world.cleanup();
     std::array<int, 4> expected{0, 63, 64, 129};
@@ -268,12 +276,138 @@ void iteration_and_mutation() {
         auto view = parent.get(child)->iter<int>();
         parent.queue_free(child);
         rejects<std::logic_error>([&] { parent.cleanup(); });
-        rejects<std::logic_error>([&] { parent.discard(); });
+        rejects<std::logic_error>([&] { parent.cleanup_tree(); });
         rejects<std::logic_error>([&] { parent.clear<World>(); });
+        rejects<std::logic_error>([&] { parent.discard(); });
+        rejects<std::logic_error>([&] { World other(std::move(parent)); });
         CHECK(parent.is_live(child));
     }
     parent.cleanup();
     CHECK(!parent.is_live(child));
+}
+
+void sparse_iteration() {
+    World world(320);
+    std::array<Atom<int>, 320> atoms;
+    for (int value = 0; value < 320; ++value) {
+        atoms[value] = world.add<int>(value);
+    }
+    for (auto [atom, value] : world.iter_atoms<int>()) {
+        if (value != 130 && value != 319) {
+            world.queue_free(atom);
+        }
+    }
+    world.cleanup();
+
+    {
+        auto view = world.iter<int>();
+        auto current = view.begin();
+        CHECK(*current == 130);
+        auto copied = current;
+        CHECK(copied == current);
+        ++current;
+        CHECK(*current == 319 && *copied == 130 && copied != current);
+        ++current;
+        CHECK(current == view.end());
+
+        auto assigned = world.iter<int>();
+        assigned = view;
+        CHECK(*assigned.begin() == 130);
+        assigned = std::move(view);
+        CHECK(view.begin() == view.end() && *assigned.begin() == 130);
+    }
+
+    world.queue_free(atoms[130]);
+    world.queue_free(atoms[319]);
+    world.cleanup();
+    {
+        auto empty = world.iter<int>();
+        CHECK(empty.begin() == empty.end());
+    }
+
+    auto replacement = world.add<int>(17);
+    size_t visited = 0;
+    for (auto [atom, value] : world.iter_atoms<int>()) {
+        CHECK(atom == replacement && value == 17);
+        ++visited;
+    }
+    CHECK(visited == 1);
+}
+
+void reentrant_mutation() {
+    struct ConstructorMutation {
+        explicit ConstructorMutation(World& world) {
+            world.add<int>(1);
+        }
+    };
+    struct ConstructorView {
+        explicit ConstructorView(World& world) {
+            auto view = world.iter<int>();
+        }
+    };
+    struct DestructorQueue {
+        World* world;
+        Atom<int> atom;
+        bool* rejected;
+
+        ~DestructorQueue() {
+            // Destructors must catch the rejection rather than let an exception escape.
+            try {
+                world->queue_free(atom);
+            }
+            catch (const std::logic_error&) {
+                *rejected = true;
+            }
+        }
+    };
+
+    World world;
+    rejects<std::logic_error>([&] { world.emplace<ConstructorMutation>(world); });
+    rejects<std::logic_error>([&] { world.emplace<ConstructorView>(world); });
+    CHECK(world.size<ConstructorMutation>() == 0 && world.size<ConstructorView>() == 0);
+    CHECK(world.size<int>() == 0);
+
+    // Failed construction must release the mutation guard so later operations work.
+    auto atom = world.add<int>(7);
+    bool rejected = false;
+    world.emplace<DestructorQueue>(&world, atom, &rejected);
+    world.clear<DestructorQueue>();
+    CHECK(rejected);
+    world.cleanup();
+    CHECK(*world.get(atom) == 7);
+}
+
+constexpr int termination_exit_code = 86;
+
+void run_termination_case(std::string_view name) {
+    // A child process checks std::terminate without stopping the test suite.
+    std::set_terminate([] { std::_Exit(termination_exit_code); });
+
+    if (name == "view-destroy") {
+        auto world = std::make_unique<World>();
+        auto view = world->iter<int>();
+        world.reset();
+        std::_Exit(0);
+    }
+    else if (name == "child-view-destroy") {
+        auto parent = std::make_unique<World>();
+        auto child = parent->emplace<World>();
+        auto view = parent->get(child)->iter<int>();
+        parent.reset();
+        std::_Exit(0);
+    }
+    else {
+        throw std::runtime_error("Unknown termination case");
+    }
+}
+
+void destruction_contracts(const char* executable) {
+    for (const char* name : {"view-destroy", "child-view-destroy"}) {
+        intptr_t result = _spawnl(_P_WAIT, executable, executable, "--termination-case", name,
+                                  static_cast<const char*>(nullptr));
+        CHECK(result == termination_exit_code);
+    }
+    std::cout << "World destruction checks passed.\n";
 }
 
 template<size_t I>
@@ -294,13 +428,21 @@ void concurrent_registration(std::index_sequence<I...>) {
     CHECK(unique.size() == ids.size());
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     try {
+        if (argc == 3 && std::string_view(argv[1]) == "--termination-case") {
+            run_termination_case(argv[2]);
+            return 0;
+        }
+        CHECK(argc == 1);
         identity_and_reuse();
         construction_and_destruction();
         worlds_and_ownership();
         iteration_and_mutation();
+        sparse_iteration();
+        reentrant_mutation();
         concurrent_registration(std::make_index_sequence<8>{});
+        destruction_contracts(argv[0]);
         std::cout << "DCS checks passed (100,000 reuse cycles). Atom<int>: " << sizeof(Atom<int>)
                   << " bytes.\n";
     }

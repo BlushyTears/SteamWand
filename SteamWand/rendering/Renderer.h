@@ -61,6 +61,8 @@ struct Renderer {
     uint64_t g_FrameFenceValues[g_NumFrames] = {};
     HANDLE g_FenceEvent;
 
+    std::vector<std::pair<GPUMesh, vec3>> meshes;
+
     bool g_VSync = true;
     bool g_TearingSupported = false;
     bool g_UseWarp = false;
@@ -68,7 +70,9 @@ struct Renderer {
 
     bool g_IsInitialized = false;
 
-    void Render(const GPUMesh& mesh);
+    std::chrono::duration<float> deltaTime;
+
+    void Render();
     void SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLine, int nCmdShow);
     void CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC& pso,
         std::string vertexShaderProgram, std::string pixelShaderProgram,
@@ -77,12 +81,14 @@ struct Renderer {
         ComPtr<IDXGISwapChain4> swapChain, ComPtr<ID3D12DescriptorHeap> descriptorHeap);
 
     void Resize(uint32_t width, uint32_t height);
+    void Update();
 
     ComPtr<ID3D12Resource> CreateUploadBuffer(const void* data, size_t byteCount);
     template<typename Vertex>
-    GPUMesh UploadMesh(const Shapes::Mesh<Vertex>& mesh);
 
+    GPUMesh UploadMesh(const Shapes::Mesh<Vertex>& mesh);
     void DrawMesh(const GPUMesh& mesh, float x, float y, float size, float angle);
+    void DrawMeshes();
 
     void Shutdown();
 
@@ -402,7 +408,7 @@ inline void Renderer::Shutdown() {
     g_FenceEvent = nullptr;
 }
 
-inline void Update() {
+inline void Renderer::Update() {
     static uint64_t frameCounter = 0;
     static double elapsedSeconds = 0.0;
     static std::chrono::high_resolution_clock clock;
@@ -410,26 +416,8 @@ inline void Update() {
 
     frameCounter++;
     auto t1 = clock.now();
-    auto deltaTime = t1 - t0;
+    this->deltaTime = t1 - t0;
     t0 = t1;
-    g_CubeAngle += std::chrono::duration<float>(deltaTime).count();
-
-    if (inputHandler.isKeyDown(Button::MouseRight)) {
-        float step = 3.0f * std::chrono::duration<float>(deltaTime).count();
-
-        vec3 forward = GetCameraForward();
-        vec3 right(std::cos(g_CameraYaw), 0.0f, -std::sin(g_CameraYaw));
-
-        vec3 movement(0.0f, 0.0f, 0.0f);
-
-        if (inputHandler.isKeyDown(Button::W)) movement += forward;
-        if (inputHandler.isKeyDown(Button::S)) movement -= forward;
-        if (inputHandler.isKeyDown(Button::A)) movement -= right;
-        if (inputHandler.isKeyDown(Button::D)) movement += right;
-
-        if (movement.dot(movement) > 0.0f)
-            g_CameraPosition += normalize(movement) * step;
-    }
 
     elapsedSeconds += deltaTime.count() * 1e-9;
 
@@ -444,7 +432,7 @@ inline void Update() {
     }
 }
 
-inline void Renderer::Render(const GPUMesh& mesh) {
+inline void Renderer::Render() {
     auto commandAllocator = g_CommandAllocators[g_CurrentBackBufferIndex];
     auto backBuffer = g_BackBuffers[g_CurrentBackBufferIndex];
 
@@ -486,7 +474,7 @@ inline void Renderer::Render(const GPUMesh& mesh) {
 
         g_CommandList->SetGraphicsRoot32BitConstants(0, 16, &viewProjection.vec[0].x, 4);
 
-        DrawMesh(mesh, 0.0f, 0.0f, 1.0f, g_CubeAngle);
+        DrawMeshes();
     }
 
     {
@@ -582,6 +570,12 @@ GPUMesh Renderer::UploadMesh(const Shapes::Mesh<Vertex>& mesh) {
     return gpu;
 }
 
+inline void Renderer::DrawMeshes() {
+    for (auto& [mesh, position] : meshes) {
+        DrawMesh(mesh, position.x, position.y, position.z, g_CubeAngle);
+    }
+}
+
 inline void Renderer::DrawMesh(const GPUMesh& mesh, float x, float y, float size, float angle) {
     
     if (g_Wireframe) {
@@ -660,7 +654,6 @@ inline void Renderer::CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC
 }
 
 inline ComPtr<ID3D12RootSignature> CreateShapeRootSignature(ComPtr<ID3D12Device2> g_Device, HRESULT& hr) {
-
     ComPtr<ID3D12RootSignature> signature;
 
     D3D12_ROOT_PARAMETER root_parameters[1] = {};
@@ -736,7 +729,6 @@ inline void Renderer::SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstanc
     meshPso.InputLayout = { &positionElement, 1 };
 
     CreatePipelinePrimitive(meshPso, "VSMesh", "PSMesh", g_MeshPipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE);
-
     CreatePipelinePrimitive(meshPso, "VSMesh", "PSMesh", g_WireFramePipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE, D3D12_FILL_MODE_WIREFRAME);
 
     for (int i = 0; i < g_NumFrames; i++) {

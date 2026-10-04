@@ -33,7 +33,7 @@ struct View;
 namespace dcs_detail {
     template<typename Integer>
     Integer next_id() {
-        static std::atomic<Integer> counter{1};
+        static std::atomic<Integer> counter{ 1 };
         Integer id = counter.load(std::memory_order_relaxed);
         while (true) {
             if (id == std::numeric_limits<Integer>::max()) {
@@ -91,8 +91,8 @@ namespace dcs_detail {
 
         World* owner;
         const uint64_t id = next_id<uint64_t>();
-        size_t views = 0;
-        bool changing = false;
+        size_t active_views = 0;
+        bool mutation_in_progress = false;
         std::vector<std::unique_ptr<ISlab>> registry;
         std::vector<Removal> death_row;
 
@@ -104,14 +104,14 @@ namespace dcs_detail {
         WorldState& state;
 
         explicit MutationGuard(WorldState& storage) : state(storage) {
-            if (state.views || state.changing) {
+            if (state.active_views || state.mutation_in_progress) {
                 throw std::logic_error("World has an active view or mutation");
             }
-            state.changing = true;
+            state.mutation_in_progress = true;
         }
 
         ~MutationGuard() {
-            state.changing = false;
+            state.mutation_in_progress = false;
         }
 
         MutationGuard(const MutationGuard&) = delete;
@@ -205,16 +205,16 @@ template<typename T>
 struct Slab final : public dcs_detail::ISlab {
 private:
     static_assert(std::is_nothrow_destructible_v<T>, "Stored destructors must not throw");
-    static constexpr size_t alignment = std::max(size_t{64}, alignof(T));
+    static constexpr size_t alignment = std::max(size_t{ 64 }, alignof(T));
 
     struct Deallocate {
         void operator()(T* data) const noexcept {
-            ::operator delete(data, std::align_val_t{alignment});
+            ::operator delete(data, std::align_val_t{ alignment });
         }
     };
 
     uint32_t cap;
-    uint32_t next_idx = 0;
+    uint32_t slot_extent = 0;
     uint32_t live_count = 0;
     std::unique_ptr<T, Deallocate> data;
     std::vector<uint32_t> generations;
@@ -230,12 +230,12 @@ private:
         }
 
         size_t allocation_bytes = static_cast<size_t>(capacity) * sizeof(T);
-        void* memory = ::operator new(allocation_bytes, std::align_val_t{alignment});
+        void* memory = ::operator new(allocation_bytes, std::align_val_t{ alignment });
         return static_cast<T*>(memory);
     }
 
     bool is_live(uint32_t slot) const noexcept {
-        if (slot >= next_idx) {
+        if (slot >= slot_extent) {
             return false;
         }
 
@@ -251,7 +251,7 @@ private:
 
     template<typename... Args>
     uint32_t emplace(Args&&... args) {
-        uint32_t slot = next_idx;
+        uint32_t slot = slot_extent;
         bool reuse_slot = !free_slots.empty();
 
         if (reuse_slot) {
@@ -275,7 +275,7 @@ private:
             free_slots.pop_back();
         }
         else {
-            next_idx = slot + 1;
+            slot_extent = slot + 1;
         }
 
         uint32_t word = slot / 64;
@@ -305,18 +305,18 @@ private:
     }
 
     void clear() override {
-        for (uint32_t slot = 0; slot < next_idx; ++slot) {
+        for (uint32_t slot = 0; slot < slot_extent; ++slot) {
             if (is_live(slot)) {
                 remove(slot, generations[slot]);
             }
         }
         free_slots.clear();
-        next_idx = 0;
+        slot_extent = 0;
     }
 
     void check_children() const override {
         if constexpr (std::is_same_v<T, World>) {
-            for (uint32_t slot = 0; slot < next_idx; ++slot) {
+            for (uint32_t slot = 0; slot < slot_extent; ++slot) {
                 if (is_live(slot)) {
                     data.get()[slot].check_mutation_tree();
                 }
@@ -326,7 +326,7 @@ private:
 
     void cleanup_children() override {
         if constexpr (std::is_same_v<T, World>) {
-            for (uint32_t slot = 0; slot < next_idx; ++slot) {
+            for (uint32_t slot = 0; slot < slot_extent; ++slot) {
                 if (is_live(slot)) {
                     data.get()[slot].cleanup_tree();
                 }
@@ -337,12 +337,12 @@ private:
 public:
     explicit Slab(uint32_t capacity)
         : cap(dcs_detail::checked_capacity(capacity)), data(allocate(cap)), generations(cap), free_slots(0),
-          presence((size_t{cap} + 63) / 64) {
+        presence((size_t{ cap } + 63) / 64) {
         free_slots.reserve(cap);
     }
 
     ~Slab() override {
-        for (uint32_t slot = 0; slot < next_idx; ++slot) {
+        for (uint32_t slot = 0; slot < slot_extent; ++slot) {
             if (is_live(slot)) {
                 std::destroy_at(data.get() + slot);
             }
@@ -375,17 +375,17 @@ private:
     View(std::shared_ptr<dcs_detail::WorldState> state, SlabPointer slab)
         : world_state(std::move(state)), slab(slab) {
         if (world_state) {
-            if (world_state->changing) {
+            if (world_state->mutation_in_progress) {
                 throw std::logic_error("World is being mutated");
             }
-            ++world_state->views;
+            ++world_state->active_views;
         }
     }
 
 public:
     View(const View& other) : world_state(other.world_state), slab(other.slab) {
         if (world_state) {
-            ++world_state->views;
+            ++world_state->active_views;
         }
     }
 
@@ -401,7 +401,7 @@ public:
 
     ~View() {
         if (world_state) {
-            --world_state->views;
+            --world_state->active_views;
         }
     }
 
@@ -421,7 +421,7 @@ public:
 
         iterator(const View* view, bool at_end) : view(view) {
             if (view->slab) {
-                size_t slot_extent = view->slab->next_idx;
+                size_t slot_extent = view->slab->slot_extent;
                 word_count = static_cast<uint32_t>((slot_extent + 63) / 64);
             }
 
@@ -476,7 +476,7 @@ public:
                 WorldRef world(view->world_state);
                 uint32_t generation = view->slab->generations[slot];
                 Atom<Value> atom(world, slot, generation);
-                return Entry{std::move(atom), value};
+                return Entry{ std::move(atom), value };
             }
             else {
                 return (value);
@@ -485,8 +485,8 @@ public:
 
         bool operator==(const iterator& other) const noexcept {
             return view == other.view &&
-                   word_index == other.word_index &&
-                   remaining_bits == other.remaining_bits;
+                word_index == other.word_index &&
+                remaining_bits == other.remaining_bits;
         }
     };
 
@@ -518,7 +518,7 @@ private:
         if (!world_state) {
             return;
         }
-        if (world_state->views || world_state->changing) {
+        if (world_state->active_views || world_state->mutation_in_progress) {
             throw std::logic_error("World has an active view or mutation");
         }
         for (const auto& slab : world_state->registry) {
@@ -553,7 +553,7 @@ private:
     void release() noexcept {
         if (world_state) {
             world_state->owner = nullptr;
-            world_state->changing = true;
+            world_state->mutation_in_progress = true;
             world_state.reset();
         }
     }
@@ -629,7 +629,7 @@ private:
 public:
     explicit World(uint32_t capacity = 1024)
         : cap(dcs_detail::checked_capacity(capacity)),
-          world_state(std::make_shared<dcs_detail::WorldState>(this)) {
+        world_state(std::make_shared<dcs_detail::WorldState>(this)) {
     }
 
     ~World() {
@@ -758,7 +758,7 @@ public:
 
     template<typename T>
     bool queue_free(const Atom<T>& atom) {
-        if (world_state && world_state->changing) {
+        if (world_state && world_state->mutation_in_progress) {
             throw std::logic_error("World is being mutated");
         }
 
@@ -873,7 +873,7 @@ public:
         RawSlots<const T> slots;
         slots.data = slab->data.get();
         slots.presence = slab->presence.data();
-        slots.extent = slab->next_idx;
+        slots.extent = slab->slot_extent;
         return slots;
     }
 
@@ -887,7 +887,7 @@ public:
         RawSlots<T> slots;
         slots.data = slab->data.get();
         slots.presence = slab->presence.data();
-        slots.extent = slab->next_idx;
+        slots.extent = slab->slot_extent;
         return slots;
     }
 };

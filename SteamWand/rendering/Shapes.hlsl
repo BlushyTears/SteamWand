@@ -14,13 +14,8 @@ float4 VSMesh(float3 position : POSITION) : SV_Position
     float s = sin(angle);
     float c = cos(angle);
     
-    p = float3(c * p.x + s * p.z,
-           p.y,
-          -s * p.x + c * p.z);
-
-    p = float3(p.x,
-           c * p.y - s * p.z,
-           s * p.y + c * p.z);
+    p = float3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);
+    p = float3(p.x, c * p.y - s * p.z, s * p.y + c * p.z);
     
     float3 worldPosition = p * size + float3(offset, 0.0f);
     return mul(viewProjection, float4(worldPosition, 1.0f));

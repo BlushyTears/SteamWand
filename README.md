@@ -115,7 +115,7 @@ for (auto [atom, body] : world.iter_atoms<Body>()) {
 world.cleanup();
 ```
 
-You can edit values and queue removals during iteration. Const Worlds give const references. Finish the views before adding, clearing, applying cleanup or moving their World; conflicting operations throw `std::logic_error`. Keep a view alive and do not move it while using its iterators. Destroying a World with an active view, including a view in an owned child, terminates the program.
+You can edit values and queue removals during iteration. Const Worlds give const references. Finish the views before adding, clearing, applying cleanup or moving their World; conflicting operations throw `std::logic_error` in Debug and Release. Keep a view alive and do not move it while using its iterators. Destroying a World with an active view, including a view in an owned child, terminates the program.
 
 ---
 
@@ -156,7 +156,7 @@ nested.add<int32_t>(100);
 World& nestedWorld = universe.attach_world(nested);   // nested is now empty
 ```
 
-Attachment moves the storage internally and leaves the source World empty. Existing Atoms and WorldRefs follow it. The moved-from World is reusable; its next insertion gets a fresh identity. Moving into an existing World invalidates that destination's earlier Atoms. Self-attachment and cycles through directly stored Worlds are rejected.
+Attachment moves the storage internally and leaves the source World empty. Existing Atoms and WorldRefs follow it. The moved-from World is reusable; its next insertion gets a fresh identity. Moving into an existing World invalidates that destination's earlier Atoms. Self-attachment and ownership cycles through directly stored Worlds throw `std::logic_error` in Debug and Release.
 
 Worlds embedded inside other stored types are not tracked by recursive cleanup or ownership-cycle checks. Store child Worlds directly as shown above.
 
@@ -215,7 +215,7 @@ void example() {
 
 ## Technical considerations
 
-Slabs are fixed capacity. The `cap` you pass to `World(cap)` is a hard limit per type; exceeding it throws `std::length_error` in Debug and Release. Zero capacity is rejected.
+Slabs are fixed capacity. The `cap` you pass to `World(cap)` must be positive; zero capacity throws `std::invalid_argument`. It is a hard limit per type; exceeding it throws `std::length_error`. These checks run in Debug and Release. Allocation and identity-exhaustion failures also remain runtime errors.
 
 Deleted slots are reused without moving other live values. Slots occupy contiguous memory, but deletion can leave holes. Removing, clearing, discarding or destroying a value ends its lifetime. Pointers to other live values survive slot reuse and World moves. Raw slot access does not block World operations; keep track of when those pointers are valid.
 
