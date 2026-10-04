@@ -1,107 +1,42 @@
 #pragma once
 
 #include <vector>
+#include <cstdint>
+
+#include <cmath>
+#include "../math/Vec3.h"
 
 namespace Shapes {
-    struct Triangle {
-        float x;
-        float y;
-        float size;
+    template<typename Vertex>
+    struct Mesh {
+        std::vector<Vertex> vertices;
+        std::vector<uint32_t> indices;
     };
 
-    struct Quad {
-        float x;
-        float y;
-        float size;
-    };
+    inline Mesh<vec3>MakeCube() {
+        Mesh<vec3> mesh;
 
-    struct VerticalLine {
-        float x;
-        float y;
-        float size;
-    };
+        mesh.vertices = {
+        {-0.5f, -0.5f, -0.5f},
+        { 0.5f, -0.5f, -0.5f},
+        { 0.5f,  0.5f, -0.5f},
+        {-0.5f,  0.5f, -0.5f},
+        {-0.5f, -0.5f,  0.5f},
+        { 0.5f, -0.5f,  0.5f},
+        { 0.5f,  0.5f,  0.5f},
+        {-0.5f,  0.5f,  0.5f}
+        };
 
-    struct Cube {
-        float x;
-        float y;
-        float size;
-    };
+        mesh.indices = {
+            0, 1, 2,  0, 2, 3,
+            4, 6, 5,  4, 7, 6,
+            0, 3, 7,  0, 7, 4,
+            1, 5, 6,  1, 6, 2,
+            3, 2, 6,  3, 6, 7,
+            0, 4, 5,  0, 5, 1
+        };
 
-    inline std::vector<VerticalLine> g_Lines;
-    inline std::vector<Triangle> g_Triangles;
-    inline std::vector<Quad> g_Quads;
-    inline std::vector<Cube> g_Cubes;
-
-    void AddVerticalLine(float x, float y, float size) {
-        g_Lines.push_back({ x, y, size });
-    }
-
-    void AddQuad(float x, float y, float size) {
-        g_Quads.push_back({ x, y, size });
-    }
-
-    void AddTriangle(float x, float y, float size) {
-        g_Triangles.push_back({ x, y, size });
-    }
-    void AddCube(float x, float y, float size) {
-        g_Cubes.push_back({ x, y, size });
+        return mesh;
     }
 }
 
-//MeshBuilder& MeshBuilder::BuildCube(float width, float height, float depth) {
-//    float w2 = width * 0.5f;
-//    float h2 = height * 0.5f;
-//    float d2 = depth * 0.5f;
-//
-//    uint currBaseIndex;
-//
-//    currBaseIndex = vertices.size();
-//    BuildVertex(-w2, -h2, d2, 0, 0);
-//    BuildVertex(w2, -h2, d2, 1, 0);
-//    BuildVertex(w2, h2, d2, 1, 1);
-//    BuildVertex(-w2, h2, d2, 0, 1);
-//    ConstructTriangle(currBaseIndex + 0, currBaseIndex + 1, currBaseIndex + 2);
-//    ConstructTriangle(currBaseIndex + 2, currBaseIndex + 3, currBaseIndex + 0);
-//
-//    currBaseIndex = vertices.size();
-//    BuildVertex(w2, -h2, -d2, 0, 0);
-//    BuildVertex(-w2, -h2, -d2, 1, 0);
-//    BuildVertex(-w2, h2, -d2, 1, 1);
-//    BuildVertex(w2, h2, -d2, 0, 1);
-//    ConstructTriangle(currBaseIndex + 0, currBaseIndex + 1, currBaseIndex + 2);
-//    ConstructTriangle(currBaseIndex + 2, currBaseIndex + 3, currBaseIndex + 0);
-//
-//    currBaseIndex = vertices.size();
-//    BuildVertex(-w2, -h2, -d2, 0, 0);
-//    BuildVertex(-w2, -h2, d2, 1, 0);
-//    BuildVertex(-w2, h2, d2, 1, 1);
-//    BuildVertex(-w2, h2, -d2, 0, 1);
-//    ConstructTriangle(currBaseIndex + 0, currBaseIndex + 1, currBaseIndex + 2);
-//    ConstructTriangle(currBaseIndex + 2, currBaseIndex + 3, currBaseIndex + 0);
-//
-//    currBaseIndex = vertices.size();
-//    BuildVertex(w2, -h2, d2, 0, 0);
-//    BuildVertex(w2, -h2, -d2, 1, 0);
-//    BuildVertex(w2, h2, -d2, 1, 1);
-//    BuildVertex(w2, h2, d2, 0, 1);
-//    ConstructTriangle(currBaseIndex + 0, currBaseIndex + 1, currBaseIndex + 2);
-//    ConstructTriangle(currBaseIndex + 2, currBaseIndex + 3, currBaseIndex + 0);
-//
-//    currBaseIndex = vertices.size();
-//    BuildVertex(-w2, h2, d2, 0, 0);
-//    BuildVertex(w2, h2, d2, 1, 0);
-//    BuildVertex(w2, h2, -d2, 1, 1);
-//    BuildVertex(-w2, h2, -d2, 0, 1);
-//    ConstructTriangle(currBaseIndex + 0, currBaseIndex + 1, currBaseIndex + 2);
-//    ConstructTriangle(currBaseIndex + 2, currBaseIndex + 3, currBaseIndex + 0);
-//
-//    currBaseIndex = vertices.size();
-//    BuildVertex(-w2, -h2, -d2, 0, 0);
-//    BuildVertex(w2, -h2, -d2, 1, 0);
-//    BuildVertex(w2, -h2, d2, 1, 1);
-//    BuildVertex(-w2, -h2, d2, 0, 1);
-//    ConstructTriangle(currBaseIndex + 0, currBaseIndex + 1, currBaseIndex + 2);
-//    ConstructTriangle(currBaseIndex + 2, currBaseIndex + 3, currBaseIndex + 0);
-//
-//    return *this;
-//}

@@ -37,7 +37,12 @@ using namespace Microsoft::WRL;
 _Use_decl_annotations_
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLine, int nCmdShow) {
 
-    SetupVariables(hInstance, hPrevInstance, lpCmdLine, nCmdShow);
+    Renderer renderer;
+
+    renderer.SetupVariables(hInstance, hPrevInstance, lpCmdLine, nCmdShow);
+
+    auto cubeData = Shapes::MakeCube();
+    GPUMesh cubeMesh = renderer.UploadMesh(cubeData);
 
     MSG msg = {};
 
@@ -62,16 +67,16 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
             g_CameraPitch = std::clamp(g_CameraPitch, -1.5f, 1.5f);
         }
 
-        if (msg.message == WM_QUIT) {
+        if (msg.message == WM_QUIT || inputHandler.isKeyPressed(Button::Escape)) {
             break;
         }
 
-        if (inputHandler.isKeyPressed(Button::Escape)) {
-            break;
+        if (inputHandler.isKeyPressed(Button::F2)) {
+            renderer.g_Wireframe = !renderer.g_Wireframe;
         }
 
         if (inputHandler.isKeyPressed(Button::V)) {
-            g_VSync = !g_VSync;
+            renderer.g_VSync = !renderer.g_VSync;
         }
 
         if (inputHandler.isKeyPressed(Button::F11) ||
@@ -80,40 +85,15 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
         }
 
         if (inputHandler.isKeyPressed(Button::MouseLeft)) {
-            float x = 2.0f * inputHandler.mouseX / g_ClientWidth - 1.0f;
-            float y = 1.0f - 2.0f * inputHandler.mouseY / g_ClientHeight;
-
-            Shapes::AddTriangle(x, y, 0.2f);
-        }
-
-        if (inputHandler.isKeyPressed(Button::X)) {
-            float x = 2.0f * inputHandler.mouseX / g_ClientWidth - 1.0f;
-            float y = 1.0f - 2.0f * inputHandler.mouseY / g_ClientHeight;
-
-            Shapes::AddVerticalLine(x - 0.001f, y, 0.2f);
-            Shapes::AddVerticalLine(x, y, 0.2f);
-            Shapes::AddVerticalLine(x + 0.001f, y, 0.2f);
-        }
-
-        if (inputHandler.isKeyPressed(Button::C)) {
-            float x = 2.0f * inputHandler.mouseX / g_ClientWidth - 1.0f;
-            float y = 1.0f - 2.0f * inputHandler.mouseY / g_ClientHeight;
-
-            Shapes::AddCube(x, y, 0.2f);
         }
 
         if (inputHandler.isMouseScrolling()) {
-            float x = 2.0f * inputHandler.mouseX / g_ClientWidth - 1.0f;
-            float y = 1.0f - 2.0f * inputHandler.mouseY / g_ClientHeight;
-
-            Shapes::AddQuad(x, y, 0.2f);
         }
 
         Update();
-        Render();
+        renderer.Render(cubeMesh);
     }
 
-    Flush(g_CommandQueue, g_Fence, g_FenceValue, g_FenceEvent);
-    ::CloseHandle(g_FenceEvent);
+    renderer.Shutdown();
     return 0;
 }

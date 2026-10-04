@@ -23,44 +23,78 @@
 #include <cmath>
 
 #include "Camera.h"
+#include <cstring>
 
 using Microsoft::WRL::ComPtr;
 
 inline constexpr uint8_t g_NumFrames = 3;
 
-inline bool g_UseWarp = false;
+struct GPUMesh {
+    ComPtr<ID3D12Resource> vertexBuffer;
+    ComPtr<ID3D12Resource> indexBuffer;
+
+    D3D12_VERTEX_BUFFER_VIEW vertexView = {};
+    D3D12_INDEX_BUFFER_VIEW indexView = {};
+
+    UINT indexCount = 0;
+};
+
+struct Renderer {
+    ComPtr<ID3D12GraphicsCommandList> g_CommandList;
+    ComPtr<ID3D12CommandAllocator> g_CommandAllocators[g_NumFrames];
+    ComPtr<ID3D12CommandQueue> g_CommandQueue;
+    ComPtr<IDXGISwapChain4> g_SwapChain;
+    ComPtr<ID3D12DescriptorHeap> g_RTVDescriptorHeap;
+
+    ComPtr<ID3D12PipelineState> g_WireFramePipelineState;
+
+    ComPtr<ID3D12PipelineState> g_MeshPipelineState;
+
+    ComPtr<ID3D12RootSignature> root_signature;
+
+    ComPtr<ID3D12Device2> g_Device;
+
+    ComPtr<ID3D12Resource> g_BackBuffers[g_NumFrames];
+
+    ComPtr<ID3D12Fence> g_Fence;
+    uint64_t g_FenceValue = 0;
+    uint64_t g_FrameFenceValues[g_NumFrames] = {};
+    HANDLE g_FenceEvent;
+
+    bool g_VSync = true;
+    bool g_TearingSupported = false;
+    bool g_UseWarp = false;
+    bool g_Wireframe = false;
+
+    bool g_IsInitialized = false;
+
+    void Render(const GPUMesh& mesh);
+    void SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLine, int nCmdShow);
+    void CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC& pso,
+        std::string vertexShaderProgram, std::string pixelShaderProgram,
+        ComPtr<ID3D12PipelineState>& g_GenericPipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE topologyType, D3D12_FILL_MODE fillMode = D3D12_FILL_MODE_SOLID);
+    void UpdateRenderTargetViews(ComPtr<ID3D12Device2> device,
+        ComPtr<IDXGISwapChain4> swapChain, ComPtr<ID3D12DescriptorHeap> descriptorHeap);
+
+    void Resize(uint32_t width, uint32_t height);
+
+    ComPtr<ID3D12Resource> CreateUploadBuffer(const void* data, size_t byteCount);
+    template<typename Vertex>
+    GPUMesh UploadMesh(const Shapes::Mesh<Vertex>& mesh);
+
+    void DrawMesh(const GPUMesh& mesh, float x, float y, float size, float angle);
+
+    void Shutdown();
+
+    UINT g_RTVDescriptorSize = 0;
+    UINT g_CurrentBackBufferIndex = 0;
+};
 
 inline uint32_t g_ClientWidth = 1280;
 inline uint32_t g_ClientHeight = 720;
 
-inline bool g_IsInitialized = false;
-
-#include "Window.h" // g_IsInitialized needs to be declared before window.h otherwise we get declaration issues, so we should restructure this soon and avoid globals
-// maybe make a big struct or something soon
-
-inline ComPtr<ID3D12RootSignature> root_signature;
-inline ComPtr<ID3D12Device2> g_Device;
-inline ComPtr<ID3D12CommandQueue> g_CommandQueue;
-inline ComPtr<IDXGISwapChain4> g_SwapChain;
-inline ComPtr<ID3D12Resource> g_BackBuffers[g_NumFrames];
-inline ComPtr<ID3D12GraphicsCommandList> g_CommandList;
-inline ComPtr<ID3D12CommandAllocator> g_CommandAllocators[g_NumFrames];
-inline ComPtr<ID3D12DescriptorHeap> g_RTVDescriptorHeap;
-inline ComPtr<ID3D12PipelineState> g_PipelineState;
-inline ComPtr<ID3D12PipelineState> g_LinePipelineState;
-inline ComPtr<ID3D12PipelineState> g_QuadPipelineState;
-inline ComPtr<ID3D12PipelineState> g_CubePipelineState;
-
-inline UINT g_RTVDescriptorSize;
-inline UINT g_CurrentBackBufferIndex;
-
-inline ComPtr<ID3D12Fence> g_Fence;
-inline uint64_t g_FenceValue = 0;
-inline uint64_t g_FrameFenceValues[g_NumFrames] = {};
-inline HANDLE g_FenceEvent;
-
-inline bool g_VSync = true;
-inline bool g_TearingSupported = false;
+// This akward placement of a library should be fixed once we move wndproc into a source file
+#include "Window.h"
 
 inline void ThrowIfFailed(HRESULT hr) {
     if (FAILED(hr)) {
@@ -269,7 +303,7 @@ inline ComPtr<ID3D12DescriptorHeap> CreateDescriptorHeap(ComPtr<ID3D12Device2> d
     return descriptorHeap;
 }
 
-inline void UpdateRenderTargetViews(ComPtr<ID3D12Device2> device,
+inline void Renderer::UpdateRenderTargetViews(ComPtr<ID3D12Device2> device,
     ComPtr<IDXGISwapChain4> swapChain, ComPtr<ID3D12DescriptorHeap> descriptorHeap) {
 
     auto rtvDescriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
@@ -362,6 +396,12 @@ inline void Flush(ComPtr<ID3D12CommandQueue> commandQueue, ComPtr<ID3D12Fence> f
     WaitForFenceValue(fence, fenceValueForSignal, fenceEvent);
 }
 
+inline void Renderer::Shutdown() {
+    Flush(g_CommandQueue, g_Fence, g_FenceValue, g_FenceEvent);
+    ::CloseHandle(g_FenceEvent);
+    g_FenceEvent = nullptr;
+}
+
 inline void Update() {
     static uint64_t frameCounter = 0;
     static double elapsedSeconds = 0.0;
@@ -404,7 +444,7 @@ inline void Update() {
     }
 }
 
-inline void Render() {
+inline void Renderer::Render(const GPUMesh& mesh) {
     auto commandAllocator = g_CommandAllocators[g_CurrentBackBufferIndex];
     auto backBuffer = g_BackBuffers[g_CurrentBackBufferIndex];
 
@@ -446,61 +486,7 @@ inline void Render() {
 
         g_CommandList->SetGraphicsRoot32BitConstants(0, 16, &viewProjection.vec[0].x, 4);
 
-        g_CommandList->SetPipelineState(g_LinePipelineState.Get());
-        g_CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
-
-        for (const Shapes::VerticalLine& line : Shapes::g_Lines) {
-            float values[] = {
-                line.x,
-                line.y,
-                line.size
-            };
-
-            g_CommandList->SetGraphicsRoot32BitConstants(0, 3, values, 0);
-            g_CommandList->DrawInstanced(2, 1, 0, 0);
-        }
-
-        g_CommandList->SetPipelineState(g_PipelineState.Get());
-        g_CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-        for (const Shapes::Triangle& triangle : Shapes::g_Triangles) {
-            float values[] = {
-                triangle.x,
-                triangle.y,
-                triangle.size
-            };
-
-            g_CommandList->SetGraphicsRoot32BitConstants(0, 3, values, 0);
-            g_CommandList->DrawInstanced(3, 1, 0, 0);
-        }
-
-        g_CommandList->SetPipelineState(g_QuadPipelineState.Get());
-        g_CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-        for (const Shapes::Quad& quad : Shapes::g_Quads) {
-            float values[] = {
-                quad.x,
-                quad.y,
-                quad.size,
-            };
-
-            g_CommandList->SetGraphicsRoot32BitConstants(0, 3, values, 0);
-            g_CommandList->DrawInstanced(6, 1, 0, 0);
-        }
-
-        g_CommandList->SetPipelineState(g_CubePipelineState.Get());
-
-        for (const Shapes::Cube& cube : Shapes::g_Cubes) {
-            float values[] = {
-                cube.x,
-                cube.y,
-                cube.size,
-                g_CubeAngle
-            };
-
-            g_CommandList->SetGraphicsRoot32BitConstants(0, 4, values, 0);
-            g_CommandList->DrawInstanced(36, 1, 0, 0);
-        }
+        DrawMesh(mesh, 0.0f, 0.0f, 1.0f, g_CubeAngle);
     }
 
     {
@@ -528,7 +514,7 @@ inline void Render() {
     }
 }
 
-inline void Resize(uint32_t width, uint32_t height) {
+inline void Renderer::Resize(uint32_t width, uint32_t height) {
     if (g_ClientWidth != width || g_ClientHeight != height) {
         g_ClientWidth = std::max(1u, width);
         g_ClientHeight = std::max(1u, height);
@@ -550,6 +536,73 @@ inline void Resize(uint32_t width, uint32_t height) {
     }
 }
 
+inline ComPtr<ID3D12Resource> Renderer::CreateUploadBuffer(const void* data, size_t byteCount) {
+    ComPtr<ID3D12Resource> buffer;
+
+    CD3DX12_HEAP_PROPERTIES heap(D3D12_HEAP_TYPE_UPLOAD);
+
+    auto description = CD3DX12_RESOURCE_DESC::Buffer(byteCount);
+
+    ThrowIfFailed(g_Device->CreateCommittedResource(
+        &heap, D3D12_HEAP_FLAG_NONE, &description, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&buffer)));
+
+    void* destination = nullptr;
+    D3D12_RANGE readRange = { 0, 0 };
+
+    ThrowIfFailed(buffer->Map(0, &readRange, &destination));
+
+    std::memcpy(destination, data, byteCount);
+
+    buffer->Unmap(0, nullptr);
+
+    return buffer;
+}
+
+template<typename Vertex>
+GPUMesh Renderer::UploadMesh(const Shapes::Mesh<Vertex>& mesh) {
+    GPUMesh gpu;
+
+    UINT vertexBytes = static_cast<UINT>(mesh.vertices.size() * sizeof(Vertex));
+
+    UINT indexBytes = static_cast<UINT>(mesh.indices.size() * sizeof(uint32_t));
+
+    gpu.vertexBuffer = CreateUploadBuffer(mesh.vertices.data(), vertexBytes);
+    gpu.indexBuffer = CreateUploadBuffer(mesh.indices.data(), indexBytes);
+
+    gpu.vertexView.BufferLocation = gpu.vertexBuffer->GetGPUVirtualAddress();
+    gpu.vertexView.SizeInBytes = vertexBytes;
+    gpu.vertexView.StrideInBytes = sizeof(Vertex);
+
+    gpu.indexView.BufferLocation = gpu.indexBuffer->GetGPUVirtualAddress();
+    gpu.indexView.SizeInBytes = indexBytes;
+    gpu.indexView.Format = DXGI_FORMAT_R32_UINT;
+
+    gpu.indexCount = static_cast<UINT>(mesh.indices.size());
+
+    return gpu;
+}
+
+inline void Renderer::DrawMesh(const GPUMesh& mesh, float x, float y, float size, float angle) {
+    
+    if (g_Wireframe) {
+        g_CommandList->SetPipelineState(g_WireFramePipelineState.Get());
+    }
+    else {
+        g_CommandList->SetPipelineState(g_MeshPipelineState.Get());
+    }
+
+    g_CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    g_CommandList->IASetVertexBuffers(0, 1, &mesh.vertexView);
+
+    g_CommandList->IASetIndexBuffer(&mesh.indexView);
+
+    float values[] = { x, y, size, angle };
+
+    g_CommandList->SetGraphicsRoot32BitConstants(0, 4, values, 0);
+    g_CommandList->DrawIndexedInstanced(mesh.indexCount, 1, 0, 0, 0);
+}
+
 inline ComPtr<ID3DBlob> CompileShader(const wchar_t* file, const char* entryPoint, const char* target) {
     ComPtr<ID3DBlob> shader;
     ComPtr<ID3DBlob> errors;
@@ -569,9 +622,10 @@ inline ComPtr<ID3DBlob> CompileShader(const wchar_t* file, const char* entryPoin
     return shader;
 }
 
-inline void CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC& pso,
+inline void Renderer::CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC& pso,
     std::string vertexShaderProgram, std::string pixelShaderProgram,
-    ComPtr<ID3D12PipelineState>& g_GenericPipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE topologyType) {
+    ComPtr<ID3D12PipelineState>& g_GenericPipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE topologyType,
+    D3D12_FILL_MODE fillMode) {
 
     ComPtr<ID3DBlob> shaderErrors;
 
@@ -584,7 +638,9 @@ inline void CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC& pso,
     pso.PS = { pixelShader->GetBufferPointer(), pixelShader->GetBufferSize() };
 
     pso.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+
     pso.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    pso.RasterizerState.FillMode = fillMode;
     pso.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 
     pso.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
@@ -596,6 +652,7 @@ inline void CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC& pso,
     pso.NumRenderTargets = 1;
     pso.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
     pso.SampleDesc.Count = 1;
+
 
     ThrowIfFailed(g_Device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&g_GenericPipelineState)));
 
@@ -633,7 +690,8 @@ inline ComPtr<ID3D12RootSignature> CreateShapeRootSignature(ComPtr<ID3D12Device2
     return signature;
 }
 
-inline void SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLine, int nCmdShow) {
+inline void Renderer::SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLine, int nCmdShow) {
+
     SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     const wchar_t* windowClassName = L"DX12WindowClass";
@@ -645,6 +703,8 @@ inline void SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR l
     RegisterWindowClass(hInstance, windowClassName, WndProc);
 
     g_hWnd = CreateAppWindow(windowClassName, hInstance, L"Learning DirectX12", g_ClientWidth, g_ClientHeight);
+
+    ::SetWindowLongPtrW(g_hWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
 
     ::GetWindowRect(g_hWnd, &g_WindowRect);
 
@@ -660,18 +720,24 @@ inline void SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR l
 
     UpdateRenderTargetViews(g_Device, g_SwapChain, g_RTVDescriptorHeap);
 
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC trianglePso = {};
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC quadPso = {};
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC cubePso = {};
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC linePso = {};
     HRESULT hr;
 
     root_signature = CreateShapeRootSignature(g_Device, hr);
 
-    CreatePipelinePrimitive(trianglePso, "VSMain", "PSMain", g_PipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE);
-    CreatePipelinePrimitive(quadPso, "VSQuad", "PSQuad", g_QuadPipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE);
-    CreatePipelinePrimitive(cubePso, "VSCube", "PSCube", g_CubePipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE);
-    CreatePipelinePrimitive(linePso, "VSLine", "PSLine", g_LinePipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE);
+    D3D12_INPUT_ELEMENT_DESC positionElement = { 
+        "POSITION", 0,
+        DXGI_FORMAT_R32G32B32_FLOAT,
+        0, 0,
+        D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
+        0
+    };
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC meshPso = {};
+    meshPso.InputLayout = { &positionElement, 1 };
+
+    CreatePipelinePrimitive(meshPso, "VSMesh", "PSMesh", g_MeshPipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE);
+
+    CreatePipelinePrimitive(meshPso, "VSMesh", "PSMesh", g_WireFramePipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE, D3D12_FILL_MODE_WIREFRAME);
 
     for (int i = 0; i < g_NumFrames; i++) {
         g_CommandAllocators[i] = CreateCommandAllocator(g_Device, D3D12_COMMAND_LIST_TYPE_DIRECT);

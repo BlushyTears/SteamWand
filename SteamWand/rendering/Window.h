@@ -12,8 +12,6 @@ inline HWND g_hWnd = nullptr;
 inline RECT g_WindowRect = {};
 inline bool g_FullScreen = false;
 
-inline void Resize(uint32_t width, uint32_t height);
-
 inline HWND CreateAppWindow(const wchar_t* windowClassName, HINSTANCE hInst,
     const wchar_t* windowTitle, uint32_t width, uint32_t height) {
 
@@ -129,14 +127,17 @@ inline LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM l
     switch (message)
     {
     case WM_SIZE:
-        if (g_IsInitialized)
-        {
+    {
+        auto* renderer = reinterpret_cast<Renderer*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+
+        if (renderer && renderer->g_IsInitialized) {
             RECT clientRect = {};
             ::GetClientRect(hwnd, &clientRect);
-            Resize(clientRect.right - clientRect.left,
-                clientRect.bottom - clientRect.top);
+
+            renderer->Resize(clientRect.right - clientRect.left, clientRect.bottom - clientRect.top);
         }
         return 0;
+    }
 
     case WM_DESTROY:
         ::PostQuitMessage(0);
