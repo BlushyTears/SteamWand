@@ -10,7 +10,7 @@
 
 Open **SteamWand.sln** in Visual Studio 2022 (Other versions hasn't been tested) and right click **SteamWandDataLayout** or **SteamWandRendering** and click "Set as startup project". One solution contains all projects: There is no need to switch solution files or edit an entry point.
 
-## Core Philosophy
+## Core Philosophy of DCS (Dynamic component system)
 
 Use one World or many Worlds based on your needs. Each World owns its local data, stored in slabs grouped by type and allocated when you first insert that type. Custom C++ types are registered automatically. Keep related fields in one record, and use typed Atoms when values need separate lifetimes. Worlds can be nested, moved and accessed directly for bulk work.
 
