@@ -219,16 +219,7 @@ Slabs are fixed capacity. The `cap` you pass to `World(cap)` must be positive; z
 
 Deleted slots are reused without moving other live values. Slots occupy contiguous memory, but deletion can leave holes. Removing, clearing, discarding or destroying a value ends its lifetime. Pointers to other live values survive slot reuse and World moves. Raw slot access does not block World operations; keep track of when those pointers are valid.
 
-World data is not thread-safe. Synchronize access yourself if you use it from multiple threads. Type registration is synchronized, but runtime type IDs are not stable identifiers for saved files.
-
-The data-layout runner supports `--examples`, `--benchmarks`, `--snake` and `--help`. Benchmarks compare equivalent World/vector work, report setup and traversal separately and verify their checksums. Windows x64, MSVC and C++20 are the current supported target.
-
-The focused regression program can be built from a Visual Studio Developer Command Prompt at the repository root:
-
-```text
-cl /nologo /std:c++20 /EHsc /W4 SteamWand\datalayout\tests\DcsTests.cpp
-DcsTests.exe
-```
+World data is not thread-safe atm. Synchronize access yourself if you use it from multiple threads. Type registration is synchronized, but runtime type IDs are not stable identifiers for saved files.
 
 ---
 
