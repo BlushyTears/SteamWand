@@ -8,7 +8,7 @@
 
 ## Build and run on Windows
 
-Open **SteamWand.sln** in Visual Studio 2022 (Other versions hasn't been tested) and right click **SteamWandDataLayout** or **SteamWandRendering** and click "Set as startup project". One solution contains all projects: There is no need to switch solution files or edit an entry point.
+Open **SteamWand.sln** in Visual Studio 2022 (Other versions hasn't been tested) and right click **SteamWandDataLayout** or **SteamWandRendering** and click "Set as startup project". One solution contains all projects: There is no need to switch solution files or similar overhead.
 
 ## Core Philosophy of DCS (Dynamic component system)
 
@@ -231,4 +231,4 @@ Dense packing, slab growth, coroutines and serialization remain future work.
 
 ## License
 
-Open source forever. Use it however you like. No strings attached.
+Open source forever. You may not (and should not since I'm new to game engines) use this as training data for your LLM without explicit permission.
