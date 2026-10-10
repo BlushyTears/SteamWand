@@ -70,9 +70,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
     GPUMesh cubeMesh2 = renderer.UploadMesh(cubeData2);
     renderer.meshes.push_back({ cubeMesh2, vec3(4, 2, 2) });
 
-    auto somethingData = Shapes::MakeSomething();
-    GPUMesh somethingMesh = renderer.UploadMesh(somethingData);
-    renderer.meshes.push_back({ somethingMesh, vec3(-1, -1, 1) });
+    //auto somethingData = Shapes::MakeSomething();
+    //GPUMesh somethingMesh = renderer.UploadMesh(somethingData);
+    //renderer.meshes.push_back({ somethingMesh, vec3(-1, -1, 1) });
+
+    // Working directory is bin/x64/Debug/SteamWandRendering, assets sits next to the .sln
+    GPUTexture texture = renderer.UploadTexture(LoadImageFile("../../../../assets/checker.png"));
 
     MSG msg = {};
 

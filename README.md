@@ -4,7 +4,7 @@
 
 ---
 
-#### Note: AI was used to help prototype the data layout. It has since had a safety and readability pass, but it is still early code.
+#### AI Note: The philosophy of Steamwand is LLM-based assistance without reliance. In other words; AI is used to speed up the development without AI-induced tech debt.
 
 ## Build and run on Windows
 
@@ -215,7 +215,7 @@ void example() {
 
 ## Technical considerations
 
-Slabs are fixed capacity. The `cap` you pass to `World(cap)` must be positive; zero capacity throws `std::invalid_argument`. It is a hard limit per type; exceeding it throws `std::length_error`. These checks run in Debug and Release. Allocation and identity-exhaustion failures also remain runtime errors.
+Slabs are fixed capacity. The `cap` you pass to `World(cap)` must be positive; zero capacity throws `std::invalid_argument`. It is a hard limit per type; exceeding it throws `std::length_error`. These checks run in Debug and Release. Allocation failures also remain runtime errors.
 
 Deleted slots are reused without moving other live values. Slots occupy contiguous memory, but deletion can leave holes. Removing, clearing, discarding or destroying a value ends its lifetime. Pointers to other live values survive slot reuse and World moves. Raw slot access does not block World operations; keep track of when those pointers are valid.
 

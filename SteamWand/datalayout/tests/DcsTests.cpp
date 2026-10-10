@@ -139,7 +139,6 @@ void identity_and_reuse() {
 
 void construction_and_destruction() {
     rejects<std::invalid_argument>([] { World zero(0); });
-    rejects<std::invalid_argument>([] { Slab<int> zero(0); });
     {
         World world(1);
         rejects<std::runtime_error>([&] { world.emplace<Counted>(-1); });
@@ -263,7 +262,7 @@ void iteration_and_mutation() {
     for (auto value : read.iter<int>()) {
         CHECK(index < expected.size() && value == expected[index++]);
     }
-    CHECK(index == 4 && world.live_count<int>() == 4);
+    CHECK(index == 4 && world.size<int>() == 4);
     CHECK(world.raw_slots<int>().is_live(129) && !world.raw_slots<int>().is_live(130));
     for (auto [atom, value] : read.iter_atoms<int>()) {
         CHECK(read.get(atom) == &value);

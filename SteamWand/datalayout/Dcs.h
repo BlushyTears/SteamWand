@@ -6,6 +6,8 @@
 //   representation hook for a slab.
 // - Thread safety
 
+
+
 #pragma once
 
 #include <algorithm>
@@ -14,7 +16,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
-#include <limits>
 #include <memory>
 #include <new>
 #include <stdexcept>
@@ -31,57 +32,15 @@ template<typename T, bool WithAtoms = false>
 struct View;
 
 namespace dcs_detail {
-    template<typename Integer>
-    Integer next_id() {
-        static std::atomic<Integer> counter{ 1 };
-        Integer id = counter.load(std::memory_order_relaxed);
-        while (true) {
-            if (id == std::numeric_limits<Integer>::max()) {
-                throw std::overflow_error("DCS identity space exhausted");
-            }
+    inline std::atomic<uint32_t> next_type_id{ 1 };
 
-            Integer next = id + 1;
-            bool id_claimed = counter.compare_exchange_weak(id, next, std::memory_order_relaxed);
-            if (id_claimed) {
-                return id;
-            }
-        }
-    }
-
-    inline uint32_t checked_capacity(uint32_t capacity) {
-        if (!capacity) {
-            throw std::invalid_argument("World capacity must be positive");
-        }
-        return capacity;
-    }
-
-}
-
-struct TypeRegistry {
-    static uint32_t next_id() {
-        return dcs_detail::next_id<uint32_t>();
-    }
-};
-
-template<typename T>
-struct TypeInfo {
-    static uint32_t id() {
-        // First call for this T: counter advances, type_id gets the new number.
-        // Every subsequent call: returns the same type_id (initialization happens once).
-        static const uint32_t type_id = TypeRegistry::next_id();
-        return type_id;
-    }
-};
-
-namespace dcs_detail {
     struct ISlab {
         virtual ~ISlab() = default;
         virtual void clear() = 0;
         virtual void remove(uint32_t slot, uint32_t generation) = 0;
-        virtual void check_children() const = 0;
-        virtual void cleanup_children() = 0;
     };
 
+    // Everything a World owns. Shared so WorldRefs can follow it through moves.
     struct WorldState {
         struct Removal {
             uint32_t type_id;
@@ -89,35 +48,29 @@ namespace dcs_detail {
             uint32_t generation;
         };
 
+        static inline std::atomic<uint64_t> next_id{ 1 };
+
         World* owner;
-        const uint64_t id = next_id<uint64_t>();
+        const uint64_t id = next_id++;
         size_t active_views = 0;
         bool mutation_in_progress = false;
-        std::vector<std::unique_ptr<ISlab>> registry;
-        std::vector<Removal> death_row;
+        std::vector<std::unique_ptr<ISlab>> slabs; // Indexed by TypeInfo<T>::id().
+        std::vector<Removal> pending_removals;     // Applied by World::cleanup().
 
-        explicit WorldState(World* world) : owner(world), registry(0), death_row(0) {
+        explicit WorldState(World* world) : owner(world) {
         }
-    };
-
-    struct MutationGuard {
-        WorldState& state;
-
-        explicit MutationGuard(WorldState& storage) : state(storage) {
-            if (state.active_views || state.mutation_in_progress) {
-                throw std::logic_error("World has an active view or mutation");
-            }
-            state.mutation_in_progress = true;
-        }
-
-        ~MutationGuard() {
-            state.mutation_in_progress = false;
-        }
-
-        MutationGuard(const MutationGuard&) = delete;
-        MutationGuard& operator=(const MutationGuard&) = delete;
     };
 }
+
+template<typename T>
+struct TypeInfo {
+    static uint32_t id() {
+        // First call for this T: counter advances, type_id gets the new number.
+        // Every subsequent call: returns the same type_id (initialization happens once).
+        static const uint32_t type_id = dcs_detail::next_type_id++;
+        return type_id;
+    }
+};
 
 struct WorldRef {
 private:
@@ -131,8 +84,6 @@ private:
         }
     }
     friend struct World;
-    template<typename>
-    friend struct Atom;
     template<typename, bool>
     friend struct View;
 
@@ -214,21 +165,17 @@ private:
     };
 
     uint32_t cap;
-    uint32_t slot_extent = 0;
+    uint32_t slot_extent = 0;          // One past the highest slot used since the last clear().
     uint32_t live_count = 0;
     std::unique_ptr<T, Deallocate> data;
-    std::vector<uint32_t> generations;
-    std::vector<uint32_t> free_slots;
-    std::vector<uint64_t> presence;
+    std::vector<uint32_t> generations; // Bumped on every removal, so older Atoms stop matching.
+    std::vector<uint32_t> free_slots;  // Removed slots that can be reused.
+    std::vector<uint64_t> presence;    // One bit per slot, set while the slot holds a value.
     friend struct World;
     template<typename, bool>
     friend struct View;
 
     static T* allocate(uint32_t capacity) {
-        if (capacity > std::numeric_limits<size_t>::max() / sizeof(T)) {
-            throw std::bad_array_new_length();
-        }
-
         size_t allocation_bytes = static_cast<size_t>(capacity) * sizeof(T);
         void* memory = ::operator new(allocation_bytes, std::align_val_t{ alignment });
         return static_cast<T*>(memory);
@@ -258,6 +205,7 @@ private:
             slot = free_slots.back();
         }
         else {
+            // After clear() the extent restarts at 0, so step over retired slots.
             while (slot < cap && generations[slot] == UINT32_MAX) {
                 ++slot;
             }
@@ -290,7 +238,7 @@ private:
             return;
         }
         if constexpr (std::is_same_v<T, World>) {
-            data.get()[slot].check_mutation_tree();
+            data.get()[slot].check_tree_not_busy();
         }
         uint32_t word = slot / 64;
         uint64_t bit = 1ULL << (slot % 64);
@@ -314,29 +262,9 @@ private:
         slot_extent = 0;
     }
 
-    void check_children() const override {
-        if constexpr (std::is_same_v<T, World>) {
-            for (uint32_t slot = 0; slot < slot_extent; ++slot) {
-                if (is_live(slot)) {
-                    data.get()[slot].check_mutation_tree();
-                }
-            }
-        }
-    }
-
-    void cleanup_children() override {
-        if constexpr (std::is_same_v<T, World>) {
-            for (uint32_t slot = 0; slot < slot_extent; ++slot) {
-                if (is_live(slot)) {
-                    data.get()[slot].cleanup_tree();
-                }
-            }
-        }
-    }
-
 public:
     explicit Slab(uint32_t capacity)
-        : cap(dcs_detail::checked_capacity(capacity)), data(allocate(cap)), generations(cap), free_slots(0),
+        : cap(capacity), data(allocate(cap)), generations(cap),
         presence((size_t{ cap } + 63) / 64) {
         free_slots.reserve(cap);
     }
@@ -393,6 +321,7 @@ public:
         other.slab = nullptr;
     }
 
+    // Copy-and-swap: `other` releases our old contents when it is destroyed.
     View& operator=(View other) noexcept {
         world_state.swap(other.world_state);
         std::swap(slab, other.slab);
@@ -413,10 +342,10 @@ public:
     struct iterator {
     private:
         const View* view;
+        uint32_t slot = 0;
         uint32_t word_index = 0;
         uint32_t word_count = 0;
-        uint32_t slot = 0;
-        uint64_t remaining_bits = 0;
+        uint64_t remaining_bits = 0; // Live slots in the current word that are not visited yet.
         friend struct View;
 
         iterator(const View* view, bool at_end) : view(view) {
@@ -425,29 +354,28 @@ public:
                 word_count = static_cast<uint32_t>((slot_extent + 63) / 64);
             }
 
-            if (at_end) {
+            if (at_end || word_count == 0) {
                 word_index = word_count;
+                return;
             }
-            else {
-                advance_to_next_live_word();
-                if (word_index < word_count) {
-                    pop_current();
-                }
-            }
+
+            remaining_bits = view->slab->presence[0];
+            move_to_next_live_slot();
         }
 
-        void advance_to_next_live_word() {
-            while (word_index < word_count) {
-                remaining_bits = view->slab->presence[word_index];
-                if (remaining_bits != 0) {
-                    return;
-                }
-
+        void move_to_next_live_slot() {
+            // Skip words that have no live slots left.
+            while (remaining_bits == 0 && word_index + 1 < word_count) {
                 ++word_index;
+                remaining_bits = view->slab->presence[word_index];
             }
-        }
 
-        void pop_current() {
+            if (remaining_bits == 0) {
+                // Nothing left, so this is now the end iterator.
+                word_index = word_count;
+                return;
+            }
+
             // Select the first live slot, then remove its bit from the mask.
             uint32_t bit_index = static_cast<uint32_t>(std::countr_zero(remaining_bits));
             slot = word_index * 64 + bit_index;
@@ -458,15 +386,7 @@ public:
 
     public:
         iterator& operator++() {
-            if (remaining_bits == 0 && word_index < word_count) {
-                ++word_index;
-                advance_to_next_live_word();
-            }
-
-            if (word_index < word_count) {
-                pop_current();
-            }
-
+            move_to_next_live_slot();
             return *this;
         }
 
@@ -475,11 +395,11 @@ public:
             if constexpr (WithAtoms) {
                 WorldRef world(view->world_state);
                 uint32_t generation = view->slab->generations[slot];
-                Atom<Value> atom(world, slot, generation);
+                Atom<Value> atom(std::move(world), slot, generation);
                 return Entry{ std::move(atom), value };
             }
             else {
-                return (value);
+                return value;
             }
         }
 
@@ -502,59 +422,75 @@ public:
 struct World {
 private:
     uint32_t cap;
-    std::shared_ptr<dcs_detail::WorldState> world_state;
-    std::weak_ptr<dcs_detail::WorldState> parent_state;
+    std::shared_ptr<dcs_detail::WorldState> world_state; // Null after a move until something is added.
+    std::weak_ptr<dcs_detail::WorldState> parent_state;  // Set while this World is stored in another World.
     template<typename>
     friend struct Slab;
 
-    dcs_detail::WorldState& storage() {
+    struct MutationGuard {
+        dcs_detail::WorldState& state;
+
+        explicit MutationGuard(dcs_detail::WorldState& storage) : state(storage) {
+            if (state.active_views || state.mutation_in_progress) {
+                throw std::logic_error("World has an active view or mutation");
+            }
+            state.mutation_in_progress = true;
+        }
+
+        ~MutationGuard() {
+            state.mutation_in_progress = false;
+        }
+
+        MutationGuard(const MutationGuard&) = delete;
+        MutationGuard& operator=(const MutationGuard&) = delete;
+    };
+
+    dcs_detail::WorldState& ensure_state() {
         if (!world_state) {
             world_state = std::make_shared<dcs_detail::WorldState>(this);
         }
         return *world_state;
     }
 
-    void check_mutation_tree() const {
+    // Throws if this World, or any World stored inside it, has an active view or mutation.
+    void check_tree_not_busy() const {
         if (!world_state) {
             return;
         }
         if (world_state->active_views || world_state->mutation_in_progress) {
             throw std::logic_error("World has an active view or mutation");
         }
-        for (const auto& slab : world_state->registry) {
-            if (slab) {
-                slab->check_children();
+
+        RawSlots<const World> children = raw_slots<World>();
+        for (uint32_t slot = 0; slot < children.extent; ++slot) {
+            if (children.is_live(slot)) {
+                children.data[slot].check_tree_not_busy();
             }
         }
     }
 
-    void check_child(World& child) const {
+    // Throws if taking over `child` would make a World own itself, or if `child` is busy.
+    void check_can_own(const World& child) const {
         if (&child == this) {
             throw std::logic_error("A World cannot own itself");
         }
-        std::shared_ptr<dcs_detail::WorldState> parent = parent_state.lock();
-        while (parent) {
-            if (parent == child.world_state) {
+
+        std::shared_ptr<dcs_detail::WorldState> ancestor = parent_state.lock();
+        while (ancestor) {
+            if (ancestor == child.world_state) {
                 throw std::logic_error("World ownership cycle");
             }
-            if (!parent->owner) {
-                break;
-            }
-
-            parent = parent->owner->parent_state.lock();
+            ancestor = ancestor->owner->parent_state.lock();
         }
-        child.check_mutation_tree();
+
+        child.check_tree_not_busy();
     }
 
-    template<typename U>
-    void check_child(U&) const {
-    }
-
-    void release() noexcept {
-        if (world_state) {
-            world_state->owner = nullptr;
-            world_state->mutation_in_progress = true;
-            world_state.reset();
+    // emplace<World> gets a capacity or a World to move in. Only the World needs checking.
+    template<typename Arg>
+    void check_world_arg(Arg& arg) const {
+        if constexpr (std::is_same_v<Arg, World>) {
+            check_can_own(arg);
         }
     }
 
@@ -566,11 +502,11 @@ private:
         }
 
         uint32_t type_id = TypeInfo<T>::id();
-        if (type_id >= world_state->registry.size()) {
+        if (type_id >= world_state->slabs.size()) {
             return nullptr;
         }
 
-        return static_cast<Slab<T>*>(world_state->registry[type_id].get());
+        return static_cast<Slab<T>*>(world_state->slabs[type_id].get());
     }
 
     template<typename T>
@@ -595,58 +531,53 @@ private:
 
     template<typename T>
     Slab<T>& ensure_slab() {
-        dcs_detail::WorldState& state = storage();
+        dcs_detail::WorldState& state = ensure_state();
         uint32_t type_id = TypeInfo<T>::id();
 
-        if (type_id >= state.registry.size()) {
-            size_t required_entries = static_cast<size_t>(type_id) + 1;
-            state.registry.resize(required_entries);
+        if (type_id >= state.slabs.size()) {
+            state.slabs.resize(type_id + 1);
         }
 
-        if (!state.registry[type_id]) {
-            state.registry[type_id] = std::make_unique<Slab<T>>(cap);
+        if (!state.slabs[type_id]) {
+            state.slabs[type_id] = std::make_unique<Slab<T>>(cap);
         }
 
-        return *static_cast<Slab<T>*>(state.registry[type_id].get());
+        return *static_cast<Slab<T>*>(state.slabs[type_id].get());
     }
 
     void drain_removals() {
-        for (const dcs_detail::WorldState::Removal& pending : world_state->death_row) {
-            if (pending.type_id >= world_state->registry.size()) {
-                continue;
-            }
-
-            dcs_detail::ISlab* slab = world_state->registry[pending.type_id].get();
-            if (!slab) {
-                continue;
-            }
-
-            slab->remove(pending.slot, pending.generation);
+        for (const dcs_detail::WorldState::Removal& removal : world_state->pending_removals) {
+            // queue_free only queues live values, so their slab exists.
+            dcs_detail::ISlab& slab = *world_state->slabs[removal.type_id];
+            slab.remove(removal.slot, removal.generation);
         }
-        world_state->death_row.clear();
+        world_state->pending_removals.clear();
     }
 
 public:
     explicit World(uint32_t capacity = 1024)
-        : cap(dcs_detail::checked_capacity(capacity)),
-        world_state(std::make_shared<dcs_detail::WorldState>(this)) {
+        : cap(capacity), world_state(std::make_shared<dcs_detail::WorldState>(this)) {
+        if (capacity == 0) {
+            throw std::invalid_argument("World capacity must be positive");
+        }
     }
 
     ~World() {
         try {
-            check_mutation_tree();
+            check_tree_not_busy();
         }
         catch (...) {
             std::terminate();
         }
-        release();
+        // Reset before the values die, so their destructors see an empty World, not a half-destroyed one.
+        world_state.reset();
     }
 
     World(const World&) = delete;
     World& operator=(const World&) = delete;
 
     World(World&& other) : cap(other.cap) {
-        other.check_mutation_tree();
+        other.check_tree_not_busy();
         world_state = std::move(other.world_state);
         if (world_state) {
             world_state->owner = this;
@@ -657,16 +588,17 @@ public:
         if (&other == this) {
             return *this;
         }
-        check_mutation_tree();
-        check_child(other);
-        uint32_t incoming_capacity = other.cap;
-        auto incoming_state = std::move(other.world_state);
+        check_tree_not_busy();
+        check_can_own(other);
+
+        // `other` may live inside our old state, so take what we need before replacing it.
+        cap = other.cap;
+        std::shared_ptr<dcs_detail::WorldState> incoming_state = std::move(other.world_state);
         if (incoming_state) {
             incoming_state->owner = this;
         }
-        release();
+
         world_state = std::move(incoming_state);
-        cap = incoming_capacity;
         return *this;
     }
 
@@ -690,12 +622,13 @@ public:
 
     template<typename T, typename... Args>
     Atom<T> emplace(Args&&... args) {
-        dcs_detail::WorldState& state = storage();
         if constexpr (std::is_same_v<T, World>) {
-            (check_child(args), ...);
+            // Calls check_world_arg once for each argument.
+            (check_world_arg(args), ...);
         }
 
-        dcs_detail::MutationGuard guard(state);
+        dcs_detail::WorldState& state = ensure_state();
+        MutationGuard guard(state);
         Slab<T>& slab = ensure_slab<T>();
         uint32_t slot = slab.emplace(std::forward<Args>(args)...);
 
@@ -742,18 +675,13 @@ public:
     }
 
     template<typename T>
-    size_t live_count() const {
+    size_t size() const {
         const Slab<T>* slab = find_slab<T>();
         if (!slab) {
             return 0;
         }
 
         return slab->size();
-    }
-
-    template<typename T>
-    size_t size() const {
-        return live_count<T>();
     }
 
     template<typename T>
@@ -766,11 +694,11 @@ public:
             return false;
         }
 
-        dcs_detail::WorldState::Removal pending;
-        pending.type_id = TypeInfo<T>::id();
-        pending.slot = atom.slot;
-        pending.generation = atom.generation;
-        world_state->death_row.push_back(pending);
+        dcs_detail::WorldState::Removal removal;
+        removal.type_id = TypeInfo<T>::id();
+        removal.slot = atom.slot;
+        removal.generation = atom.generation;
+        world_state->pending_removals.push_back(removal);
         return true;
     }
 
@@ -779,21 +707,23 @@ public:
             return;
         }
 
-        dcs_detail::MutationGuard guard(*world_state);
+        MutationGuard guard(*world_state);
         drain_removals();
     }
 
     void cleanup_tree() {
-        check_mutation_tree();
+        check_tree_not_busy();
         if (!world_state) {
             return;
         }
 
-        dcs_detail::MutationGuard guard(*world_state);
+        MutationGuard guard(*world_state);
         drain_removals();
-        for (auto& slab : world_state->registry) {
-            if (slab) {
-                slab->cleanup_children();
+
+        RawSlots<World> children = raw_slots<World>();
+        for (uint32_t slot = 0; slot < children.extent; ++slot) {
+            if (children.is_live(slot)) {
+                children.data[slot].cleanup_tree();
             }
         }
     }
@@ -803,43 +733,32 @@ public:
         if (!world_state) {
             return;
         }
+        if constexpr (std::is_same_v<T, World>) {
+            // Fail before anything is removed if a child World is in use.
+            check_tree_not_busy();
+        }
 
+        MutationGuard guard(*world_state);
         Slab<T>* slab = find_slab<T>();
-        dcs_detail::MutationGuard guard(*world_state);
         if (slab) {
-            slab->check_children();
             slab->clear();
         }
-
-        uint32_t type_id = TypeInfo<T>::id();
-        auto& pending_removals = world_state->death_row;
-        size_t removals_kept = 0;
-
-        for (const auto& pending : pending_removals) {
-            if (pending.type_id == type_id) {
-                continue;
-            }
-
-            pending_removals[removals_kept] = pending;
-            ++removals_kept;
-        }
-
-        pending_removals.resize(removals_kept);
+        // Queued removals of T still name the old generations, so cleanup() skips them.
     }
 
     void discard() {
-        check_mutation_tree();
+        check_tree_not_busy();
         if (!world_state) {
             return;
         }
 
-        dcs_detail::MutationGuard guard(*world_state);
-        for (auto& slab : world_state->registry) {
+        MutationGuard guard(*world_state);
+        for (auto& slab : world_state->slabs) {
             if (slab) {
                 slab->clear();
             }
         }
-        world_state->death_row.clear();
+        world_state->pending_removals.clear();
     }
 
     template<typename T>

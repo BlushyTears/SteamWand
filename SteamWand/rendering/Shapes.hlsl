@@ -1,28 +1,39 @@
 
-cbuffer ObjectData : register(b0)
+cbuffer ConstantBuffer : register(b0)
 {
-    float2 offset;
-    float size;
-    float angle;
+    column_major float4x4 model;
     column_major float4x4 viewProjection;
 };
 
-float4 VSMesh(float3 position : POSITION) : SV_Position
+struct InputElement
 {
-    float3 p = position;
+    float3 pos : POSITION;
+    float2 uv : TEXCOORD;
+};
+
+Texture2D g_texture : register(t0);
+SamplerState g_sampler : register(s0);
+
+struct OutputElement
+{
+    float4 pos : SV_POSITION;
+    float2 uv : TEXCOORD;
+};
+
+OutputElement VSMesh(InputElement input)
+{
+    OutputElement output;
     
-    float s = sin(angle);
-    float c = cos(angle);
+    float4 worldPos = mul(model, float4(input.pos, 1.0f));
+
+    output.pos = mul(viewProjection, worldPos);
+    output.uv = input.uv;
     
-    p = float3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);
-    p = float3(p.x, c * p.y - s * p.z, s * p.y + c * p.z);
-    
-    float3 worldPosition = p * size + float3(offset, 0.0f);
-    return mul(viewProjection, float4(worldPosition, 1.0f));
+    return output;
 }
 
-float4 PSMesh() : Sv_Target
+float4 PSMesh(OutputElement input) : SV_Target
 {
-    return float4(0.1, 0.1, 0.0f, 1.0f);
-}
+    return g_texture.Sample(g_sampler, input.uv);
+}   
 

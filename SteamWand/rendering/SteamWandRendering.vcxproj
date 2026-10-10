@@ -43,6 +43,7 @@
   <ItemDefinitionGroup>
     <ClCompile>
       <PreprocessorDefinitions>_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <LanguageStandard Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">stdcpp23</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -56,9 +57,15 @@
     <ClInclude Include="Input.h" />
     <ClInclude Include="Renderer.h" />
     <ClInclude Include="Shapes.h" />
+    <ClInclude Include="Texture.h" />
     <ClInclude Include="Window.h" />
     <!-- Retained shader prototype; the current renderer only clears the window. -->
     <None Include="Shapes.hlsl" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\thirdparty\SteamWandThirdParty.vcxproj">
+      <Project>{86d4693e-221e-453b-bdc1-3e11de96a7bb}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

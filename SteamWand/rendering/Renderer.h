@@ -25,6 +25,8 @@
 #include "Camera.h"
 #include <cstring>
 
+#include "Texture.h"
+
 using Microsoft::WRL::ComPtr;
 
 inline constexpr uint8_t g_NumFrames = 3;
@@ -39,7 +41,13 @@ struct GPUMesh {
     UINT indexCount = 0;
 };
 
+struct GPUTexture {
+    ComPtr<ID3D12Resource> resource;
+};
+
 struct Renderer {
+
+    ComPtr<ID3D12DescriptorHeap> g_SRVDescriptorHeap;
     ComPtr<ID3D12GraphicsCommandList> g_CommandList;
     ComPtr<ID3D12CommandAllocator> g_CommandAllocators[g_NumFrames];
     ComPtr<ID3D12CommandQueue> g_CommandQueue;
@@ -70,7 +78,7 @@ struct Renderer {
 
     bool g_IsInitialized = false;
 
-    std::chrono::duration<float> deltaTime;
+    std::chrono::duration<float> deltaTime{};
 
     void Render();
     void SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLine, int nCmdShow);
@@ -87,6 +95,7 @@ struct Renderer {
     template<typename Vertex>
 
     GPUMesh UploadMesh(const Shapes::Mesh<Vertex>& mesh);
+    GPUTexture UploadTexture(const Image& image);
     void DrawMesh(const GPUMesh& mesh, float x, float y, float size, float angle);
     void DrawMeshes();
 
@@ -94,6 +103,7 @@ struct Renderer {
 
     UINT g_RTVDescriptorSize = 0;
     UINT g_CurrentBackBufferIndex = 0;
+    UINT g_SRVDescriptorSize = 0;
 };
 
 inline uint32_t g_ClientWidth = 1280;
@@ -296,13 +306,14 @@ inline ComPtr<IDXGISwapChain4> CreateSwapChain(
 }
 
 inline ComPtr<ID3D12DescriptorHeap> CreateDescriptorHeap(ComPtr<ID3D12Device2> device,
-    D3D12_DESCRIPTOR_HEAP_TYPE type, uint32_t numDescriptors) {
+    D3D12_DESCRIPTOR_HEAP_TYPE type, uint32_t numDescriptors, D3D12_DESCRIPTOR_HEAP_FLAGS flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE) {
 
     ComPtr<ID3D12DescriptorHeap> descriptorHeap;
 
     D3D12_DESCRIPTOR_HEAP_DESC desc = {};
     desc.NumDescriptors = numDescriptors;
     desc.Type = type;
+    desc.Flags = flags;
 
     ThrowIfFailed(device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&descriptorHeap)));
 
@@ -465,14 +476,19 @@ inline void Renderer::Render() {
 
         g_CommandList->RSSetViewports(1, &viewPort);
         g_CommandList->RSSetScissorRects(1, &scissor);
-
         g_CommandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
-
         g_CommandList->SetGraphicsRootSignature(root_signature.Get());
+
+        ID3D12DescriptorHeap* heaps[] = {
+            g_SRVDescriptorHeap.Get()
+        };
+
+        g_CommandList->SetDescriptorHeaps(_countof(heaps), heaps);
+        g_CommandList->SetGraphicsRootDescriptorTable(1, g_SRVDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
         mat4 viewProjection = GetCameraPosition(g_ClientWidth, g_ClientHeight) * GetCameraView();
 
-        g_CommandList->SetGraphicsRoot32BitConstants(0, 16, &viewProjection.vec[0].x, 4);
+        g_CommandList->SetGraphicsRoot32BitConstants(0, 16, &viewProjection.vec[0].x, 16);
 
         DrawMeshes();
     }
@@ -570,6 +586,47 @@ GPUMesh Renderer::UploadMesh(const Shapes::Mesh<Vertex>& mesh) {
     return gpu;
 }
 
+inline GPUTexture Renderer::UploadTexture(const Image& image) {
+    GPUTexture gpu;
+
+    CD3DX12_HEAP_PROPERTIES defaultHeap(D3D12_HEAP_TYPE_DEFAULT);
+    auto textureDescription = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM, image.width, image.height, 1, 1);
+
+    ThrowIfFailed(g_Device->CreateCommittedResource(
+        &defaultHeap, D3D12_HEAP_FLAG_NONE, &textureDescription, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&gpu.resource)));
+
+    ComPtr<ID3D12Resource> uploadBuffer;
+    CD3DX12_HEAP_PROPERTIES uploadHeap(D3D12_HEAP_TYPE_UPLOAD);
+    auto bufferDescription = CD3DX12_RESOURCE_DESC::Buffer(GetRequiredIntermediateSize(gpu.resource.Get(), 0, 1));
+
+    ThrowIfFailed(g_Device->CreateCommittedResource(
+        &uploadHeap, D3D12_HEAP_FLAG_NONE, &bufferDescription, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&uploadBuffer)));
+
+    auto commandAllocator = g_CommandAllocators[g_CurrentBackBufferIndex];
+    commandAllocator->Reset();
+    g_CommandList->Reset(commandAllocator.Get(), nullptr);
+
+    // Pads each row to 256 bytes in the upload buffer and records the copy into the texture
+    D3D12_SUBRESOURCE_DATA pixels = { image.pixels.data(), image.width * 4, image.width * 4 * image.height };
+    UpdateSubresources(g_CommandList.Get(), gpu.resource.Get(), uploadBuffer.Get(), 0, 0, 1, &pixels);
+
+    CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(gpu.resource.Get(),
+        D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+    g_CommandList->ResourceBarrier(1, &barrier);
+
+    ThrowIfFailed(g_CommandList->Close());
+
+    ID3D12CommandList* const commandList[] = { g_CommandList.Get() };
+    g_CommandQueue->ExecuteCommandLists(_countof(commandList), commandList);
+
+    Flush(g_CommandQueue, g_Fence, g_FenceValue, g_FenceEvent);
+
+    g_Device->CreateShaderResourceView(gpu.resource.Get(), nullptr, g_SRVDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+
+    return gpu;
+}
+
 inline void Renderer::DrawMeshes() {
     for (auto& [mesh, position] : meshes) {
         DrawMesh(mesh, position.x, position.y, position.z, g_CubeAngle);
@@ -591,9 +648,19 @@ inline void Renderer::DrawMesh(const GPUMesh& mesh, float x, float y, float size
 
     g_CommandList->IASetIndexBuffer(&mesh.indexView);
 
-    float values[] = { x, y, size, angle };
+    mat4 scale;
+    scale.vec[0].x = size;
+    scale.vec[1].y = size;
+    scale.vec[2].z = size;
 
-    g_CommandList->SetGraphicsRoot32BitConstants(0, 4, values, 0);
+    mat4 rotation = rotationx(angle) * rotationy(angle);
+
+    mat4 translation;
+    translation.vec[3] = vec4(x, y, 0.0f, 1.0f);
+
+    mat4 model = translation * rotation * scale;
+
+    g_CommandList->SetGraphicsRoot32BitConstants(0, 16, &model.vec[0].x, 0);
     g_CommandList->DrawIndexedInstanced(mesh.indexCount, 1, 0, 0, 0);
 }
 
@@ -626,7 +693,6 @@ inline void Renderer::CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC
     auto vertexShader = CompileShader(L"Shapes.hlsl", vertexShaderProgram.c_str(), "vs_5_0");
     auto pixelShader = CompileShader(L"Shapes.hlsl", pixelShaderProgram.c_str(), "ps_5_0");
 
-    // This pso is hard coded, at some point we probably want this to lie in some better place
     pso.pRootSignature = root_signature.Get();
     pso.VS = { vertexShader->GetBufferPointer(), vertexShader->GetBufferSize() };
     pso.PS = { pixelShader->GetBufferPointer(), pixelShader->GetBufferSize() };
@@ -635,7 +701,7 @@ inline void Renderer::CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC
 
     pso.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
     pso.RasterizerState.FillMode = fillMode;
-    pso.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pso.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
 
     pso.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
     pso.DepthStencilState.DepthEnable = FALSE;
@@ -647,7 +713,6 @@ inline void Renderer::CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC
     pso.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
     pso.SampleDesc.Count = 1;
 
-
     ThrowIfFailed(g_Device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&g_GenericPipelineState)));
 
     shaderErrors.Reset();
@@ -656,28 +721,54 @@ inline void Renderer::CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC
 inline ComPtr<ID3D12RootSignature> CreateShapeRootSignature(ComPtr<ID3D12Device2> g_Device, HRESULT& hr) {
     ComPtr<ID3D12RootSignature> signature;
 
-    D3D12_ROOT_PARAMETER root_parameters[1] = {};
+    D3D12_DESCRIPTOR_RANGE root_range = {};
+    root_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    root_range.NumDescriptors = 1;
+    root_range.BaseShaderRegister = 0;
+    root_range.RegisterSpace = 0;
+    root_range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_STATIC_SAMPLER_DESC samplerDesc = {};
+    samplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+    samplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    samplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    samplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    samplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
+    samplerDesc.MaxAnisotropy = 1;
+    samplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+    samplerDesc.ShaderRegister = 0;
+    samplerDesc.RegisterSpace = 0;
+    samplerDesc.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    D3D12_ROOT_PARAMETER root_parameters[2] = {};
     root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    root_parameters[0].Constants.Num32BitValues = 20;
+    root_parameters[0].Constants.Num32BitValues = 32;
     root_parameters[0].Constants.ShaderRegister = 0;
     root_parameters[0].Constants.RegisterSpace = 0;
     root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[1].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[1].DescriptorTable.pDescriptorRanges = &root_range;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     D3D12_ROOT_SIGNATURE_DESC root_signature_desc = {};
     root_signature_desc.NumParameters = _countof(root_parameters);
     root_signature_desc.pParameters = root_parameters;
-    root_signature_desc.NumStaticSamplers = 0;
-    root_signature_desc.pStaticSamplers = nullptr;
+    root_signature_desc.NumStaticSamplers = 1;
     root_signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    root_signature_desc.pStaticSamplers = &samplerDesc;
 
     ComPtr<ID3DBlob> signature_blob;
     ComPtr<ID3DBlob> error_blob;
 
     hr = D3D12SerializeRootSignature(&root_signature_desc, D3D_ROOT_SIGNATURE_VERSION_1, &signature_blob, &error_blob);
+
+    if (error_blob) {
+        OutputDebugStringA(static_cast<const char*>(error_blob->GetBufferPointer()));
+    }
     ThrowIfFailed(hr);
 
     hr = g_Device->CreateRootSignature(0, signature_blob->GetBufferPointer(), signature_blob->GetBufferSize(), IID_PPV_ARGS(&signature));
-
     ThrowIfFailed(hr);
 
     return signature;
@@ -711,12 +802,17 @@ inline void Renderer::SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstanc
     g_RTVDescriptorHeap = CreateDescriptorHeap(g_Device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, g_NumFrames);
     g_RTVDescriptorSize = g_Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
+    g_SRVDescriptorHeap = CreateDescriptorHeap(g_Device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE);
+    g_SRVDescriptorSize = g_Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
     UpdateRenderTargetViews(g_Device, g_SwapChain, g_RTVDescriptorHeap);
 
     HRESULT hr;
 
     root_signature = CreateShapeRootSignature(g_Device, hr);
 
+    D3D12_INPUT_ELEMENT_DESC array[2];
+    
     D3D12_INPUT_ELEMENT_DESC positionElement = { 
         "POSITION", 0,
         DXGI_FORMAT_R32G32B32_FLOAT,
@@ -725,8 +821,19 @@ inline void Renderer::SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstanc
         0
     };
 
+    D3D12_INPUT_ELEMENT_DESC textureElement = {
+        "TEXCOORD", 0,
+        DXGI_FORMAT_R32G32_FLOAT,
+        0, 12,
+        D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
+        0
+    };
+
+    array[0] = positionElement;
+    array[1] = textureElement;
+        
     D3D12_GRAPHICS_PIPELINE_STATE_DESC meshPso = {};
-    meshPso.InputLayout = { &positionElement, 1 };
+    meshPso.InputLayout = { &array[0], _countof(array)};
 
     CreatePipelinePrimitive(meshPso, "VSMesh", "PSMesh", g_MeshPipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE);
     CreatePipelinePrimitive(meshPso, "VSMesh", "PSMesh", g_WireFramePipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE, D3D12_FILL_MODE_WIREFRAME);
