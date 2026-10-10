@@ -1,6 +1,8 @@
 # SteamWand
 
-#### A modular, data-oriented C++ engine built on axiomatic composition to gain the benefits of conventional OOP benefits without the undesired inheritence bloat and the likes. Everything is an atom that lives in a defined world of potentially worlds if so wished for. Rendering is driven by Directx12 and the long-term vision is potentially a more plugin-like architechture but for now it remains staticly linked modules and an tied with a main loop.
+#### A modular, data-oriented C++ engine built on axiomatic composition to gain the benefits of conventional OOP benefits without the undesired inheritence bloat and the likes. Everything data-related is an atom that lives in a defined world of potentially worlds if so wished for. 
+
+#### Rendering is driven by Directx12 and the long-term vision is potentially a more plugin-like architechture but for now it remains staticly linked modules and an tied with a main loop.
 
 ---
 
@@ -12,7 +14,7 @@
 
 ## Build and run on Windows
 
-Open **SteamWand.sln** in Visual Studio 2022 (Other versions hasn't been tested) and right click **SteamWandDataLayout** or **SteamWandRendering** and click "Set as startup project". One solution contains all projects: There is no need to switch solution files or similar overhead.
+Clone this repo and Open **SteamWand.sln** in Visual Studio 2022 (Other versions hasn't been tested yet) and right click **SteamWandDataLayout** or **SteamWandRendering** and click "Set as startup project". The rendering project should be picked by default so you should be able to skip this step if you just want it to work out of the box.
 
 ## Core Philosophy of DCS (Dynamic component system)
 
