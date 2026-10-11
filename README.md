@@ -14,7 +14,7 @@
 
 ## Build and run on Windows
 
-Clone this repo and Open **SteamWand.sln** in Visual Studio 2022 (Other versions hasn't been tested yet) and right click **SteamWandDataLayout** or **SteamWandRendering** and click "Set as startup project". The rendering project should be picked by default so you should be able to skip this step if you just want it to work out of the box.
+Clone this repo and Open **SteamWand.sln** in Visual Studio 2022 (Other versions hasn't been tested yet) and right click **SteamWandDataLayout** or **SteamWandMain** and click "Set as startup project". SteamWandMain (the application, linking the SteamWandRendering engine library) should be picked by default so you should be able to skip this step if you just want it to work out of the box.
 
 ## Core Philosophy of DCS (Dynamic component system)
 

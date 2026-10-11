@@ -1,42 +1,8 @@
-#include <iostream>
-#include <chrono>
-#include <algorithm>
-#include <cassert>
-#include <vector>
-#include <windowsx.h>
-
-#include <Windows.h>
-#include <shellapi.h>
-
-#if defined(min)
-#undef min
-#endif
-
-#if defined(max)
-#undef max
-#endif
-
-#if defined(CreateWindow)
-#undef CreateWindow
-#endif
-
-#include <wrl.h>
-
-#include "d3dx12.h"
-
-#include <dxgi1_6.h>
-#include <d3dcompiler.h>
-#include <DirectXMath.h>
-
-#include "Renderer.h"
-#include "Window.h"
-#include "Input.h"
+#include "App.h"
 
 using namespace Microsoft::WRL;
 
-void MoveAround(Renderer renderer) {
-    g_CubeAngle += std::chrono::duration<float>(renderer.deltaTime).count();
-
+void MoveAround(Renderer& renderer) {
     if (inputHandler.isKeyDown(Button::MouseRight)) {
         float step = 3.0f * std::chrono::duration<float>(renderer.deltaTime).count();
 
@@ -55,6 +21,10 @@ void MoveAround(Renderer renderer) {
     }
 }
 
+// Start and rendering has to be called here in order for SteamWandMain to be able to run.
+// These two functions are ugly exceptions since engine to game calls can only go through 
+// start and update (declared in app.h), essentially the engine calls code it didn't run so
+// it sort of works like a callback to resolve linking errors. Pattern is called "Inversion of control"
 _Use_decl_annotations_
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLine, int nCmdShow) {
 
@@ -62,20 +32,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
 
     renderer.SetupVariables(hInstance, hPrevInstance, lpCmdLine, nCmdShow);
 
-    auto cubeData = Shapes::MakeCube();
-    GPUMesh cubeMesh = renderer.UploadMesh(cubeData);
-    renderer.meshes.push_back({ cubeMesh, vec3(1, 2, 1) });
-
-    auto cubeData2 = Shapes::MakeCube();
-    GPUMesh cubeMesh2 = renderer.UploadMesh(cubeData2);
-    renderer.meshes.push_back({ cubeMesh2, vec3(4, 2, 2) });
-
-    //auto somethingData = Shapes::MakeSomething();
-    //GPUMesh somethingMesh = renderer.UploadMesh(somethingData);
-    //renderer.meshes.push_back({ somethingMesh, vec3(-1, -1, 1) });
-
-    // Working directory is bin/x64/Debug/SteamWandRendering, assets sits next to the .sln
-    GPUTexture texture = renderer.UploadTexture(LoadImageFile("../../../../assets/checker.png"));
+    Start(renderer);
 
     MSG msg = {};
 
@@ -116,13 +73,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
             SetFullScreen(!g_FullScreen);
         }
 
-        if (inputHandler.isKeyPressed(Button::MouseLeft)) {
-        }
-
-        if (inputHandler.isMouseScrolling()) {
-        }
-
         MoveAround(renderer);
+        Update(renderer, renderer.deltaTime.count());
         renderer.Update();
         renderer.Render();
     }

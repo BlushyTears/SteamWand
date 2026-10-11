@@ -25,7 +25,7 @@ struct mat4 {
     const vec4& operator[](uint32_t i) const;
 };
 
-mat4::mat4() {
+inline mat4::mat4() {
     // Identity matrix
     vec[0] = vec4(1.0f, 0.0f, 0.0f, 0.0f);
     vec[1] = vec4(0.0f, 1.0f, 0.0f, 0.0f);
@@ -33,21 +33,21 @@ mat4::mat4() {
     vec[3] = vec4(0.0f, 0.0f, 0.0f, 1.0f);
 }
 
-mat4::mat4(const vec4& r0, const vec4& r1, const vec4& r2, const vec4& r3) {
+inline mat4::mat4(const vec4& r0, const vec4& r1, const vec4& r2, const vec4& r3) {
     vec[0] = r0;
     vec[1] = r1;
     vec[2] = r2;
     vec[3] = r3;
 }
 
-mat4::mat4(const mat4& m) {
+inline mat4::mat4(const mat4& m) {
     vec[0] = m.vec[0];
     vec[1] = m.vec[1];
     vec[2] = m.vec[2];
     vec[3] = m.vec[3];
 }
 
-mat4& mat4::operator=(const mat4& rhs) {
+inline mat4& mat4::operator=(const mat4& rhs) {
     if (this != &rhs) {
         vec[0] = rhs.vec[0];
         vec[1] = rhs.vec[1];
@@ -57,7 +57,7 @@ mat4& mat4::operator=(const mat4& rhs) {
     return *this;
 }
 
-const mat4 mat4::operator*(const mat4& rhs) const {
+inline const mat4 mat4::operator*(const mat4& rhs) const {
     mat4 result;
     for (int i = 0; i < 4; ++i) {
         result.vec[i] = vec4(
@@ -70,7 +70,7 @@ const mat4 mat4::operator*(const mat4& rhs) const {
     return result;
 }
 
-const vec4 mat4::operator*(const vec4& rhs) const {
+inline const vec4 mat4::operator*(const vec4& rhs) const {
     return vec4(
         vec[0].x * rhs.x + vec[1].x * rhs.y + vec[2].x * rhs.z + vec[3].x * rhs.w,
         vec[0].y * rhs.x + vec[1].y * rhs.y + vec[2].y * rhs.z + vec[3].y * rhs.w,
@@ -79,27 +79,27 @@ const vec4 mat4::operator*(const vec4& rhs) const {
     );
 }
 
-const bool mat4::operator==(const mat4& rhs) {
+inline const bool mat4::operator==(const mat4& rhs) {
     return vec[0] == rhs.vec[0] &&
         vec[1] == rhs.vec[1] &&
         vec[2] == rhs.vec[2] &&
         vec[3] == rhs.vec[3];
 }
 
-const bool mat4::operator!=(const mat4& rhs) {
+inline const bool mat4::operator!=(const mat4& rhs) {
     return !(*this == rhs);
 }
 
-vec4& mat4::operator[](uint32_t i) {
+inline vec4& mat4::operator[](uint32_t i) {
     return vec[i];
 }
 
-const vec4& mat4::operator[](uint32_t i) const {
+inline const vec4& mat4::operator[](uint32_t i) const {
     return vec[i];
 }
 
 // A non-recursive determinant function
-float determinant(const mat4& m) {
+inline float determinant(const mat4& m) {
     float cofactor00 = m.vec[1].y * (m.vec[2].z * m.vec[3].w - m.vec[2].w * m.vec[3].z) -
         m.vec[1].z * (m.vec[2].y * m.vec[3].w - m.vec[2].w * m.vec[3].y) +
         m.vec[1].w * (m.vec[2].y * m.vec[3].z - m.vec[2].z * m.vec[3].y);
@@ -124,7 +124,7 @@ float determinant(const mat4& m) {
     return det;
 }
 
-mat4 transpose(const mat4& m) {
+inline mat4 transpose(const mat4& m) {
     vec4 v1 = vec4(m.vec[0].x, m.vec[1].x, m.vec[2].x, m.vec[3].x);
     vec4 v2 = vec4(m.vec[0].y, m.vec[1].y, m.vec[2].y, m.vec[3].y);
     vec4 v3 = vec4(m.vec[0].z, m.vec[1].z, m.vec[2].z, m.vec[3].z);
@@ -132,7 +132,7 @@ mat4 transpose(const mat4& m) {
     return mat4(v1, v2, v3, v4);
 }
 
-mat4 cofactorMatrix(const mat4& mat) {
+inline mat4 cofactorMatrix(const mat4& mat) {
     mat4 cofactor;
     for (int i = 0; i < 4; i++) {
         for (int j = 0; j < 4; j++) {
@@ -160,7 +160,7 @@ mat4 cofactorMatrix(const mat4& mat) {
     return cofactor;
 }
 
-mat4 inverse(const mat4& m) {
+inline mat4 inverse(const mat4& m) {
     float det = determinant(m);
     // identiy upon failure
     if (det == 0) {
@@ -178,7 +178,7 @@ mat4 inverse(const mat4& m) {
 }
 
 // Rotate about the x-axis
-mat4 rotationx(float rad) {
+inline mat4 rotationx(float rad) {
     mat4 m;
     m.vec[0] = vec4(1.0f, 0.0f, 0.0f, 0.0f);
     m.vec[1] = vec4(0.0f, cos(rad), -sin(rad), 0.0f);
@@ -188,7 +188,7 @@ mat4 rotationx(float rad) {
 }
 
 // Rotate about the y-axis
-mat4 rotationy(float rad) {
+inline mat4 rotationy(float rad) {
     mat4 m;
     m.vec[0] = vec4(cos(rad), 0.0f, sin(rad), 0.0f);
     m.vec[1] = vec4(0.0f, 1.0f, 0.0f, 0.0f);
@@ -198,7 +198,7 @@ mat4 rotationy(float rad) {
 }
 
 // Rotate about the z-axis
-mat4 rotationz(float rad) {
+inline mat4 rotationz(float rad) {
     mat4 m;
     m.vec[0] = vec4(cos(rad), -sin(rad), 0.0f, 0.0f);
     m.vec[1] = vec4(sin(rad), cos(rad), 0.0f, 0.0f);
@@ -209,7 +209,7 @@ mat4 rotationz(float rad) {
 
 // Rotate about any axis using the roudriges formula
 // Note: w is 1, so we allow for translation as well
-mat4 rotationaxis(const vec3& v, const float rad) {
+inline mat4 rotationaxis(const vec3& v, const float rad) {
     vec3 axis = normalize(v);
 
     float cosTheta = cos(rad);
@@ -244,7 +244,7 @@ mat4 rotationaxis(const vec3& v, const float rad) {
     return transpose(result);
 }
 
-mat4 perspective(float fovy, float aspect, float nearPlane, float farPlane) {
+inline mat4 perspective(float fovy, float aspect, float nearPlane, float farPlane) {
     float tan_half_fovy = tan(fovy / 2.0f);
 
     // Initialize as an identity matrix
@@ -258,7 +258,7 @@ mat4 perspective(float fovy, float aspect, float nearPlane, float farPlane) {
     return result;
 }
 
-mat4 lookat(const vec3& eye, const vec3& at, const vec3& up) {
+inline mat4 lookat(const vec3& eye, const vec3& at, const vec3& up) {
     vec3 forward = normalize(eye - at);
     vec3 right = normalize(up.cross(forward));
     vec3 up_corrected = forward.cross(right);

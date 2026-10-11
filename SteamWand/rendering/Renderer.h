@@ -690,6 +690,8 @@ inline void Renderer::CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC
 
     ComPtr<ID3DBlob> shaderErrors;
 
+    // this is probably not gonna work once we reference the shader from elsewhere, so we might need a relative path that's more scalable
+    // both for other projects liek SteamWandMain to reference, but also future builds
     auto vertexShader = CompileShader(L"Shapes.hlsl", vertexShaderProgram.c_str(), "vs_5_0");
     auto pixelShader = CompileShader(L"Shapes.hlsl", pixelShaderProgram.c_str(), "ps_5_0");
 

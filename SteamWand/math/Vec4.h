@@ -32,28 +32,28 @@ struct vec4 {
     const float& operator[](const size_t i) const;
 };
 
-vec4::vec4() {
+inline vec4::vec4() {
     x = 0.0f;
     y = 0.0f;
     z = 0.0f;
     w = 0.0f;
 }
 
-vec4::vec4(float _x, float _y, float _z, float _w) {
+inline vec4::vec4(float _x, float _y, float _z, float _w) {
     x = _x;
     y = _y;
     z = _z;
     w = _w;
 }
 
-vec4::vec4(const vec4& v) {
+inline vec4::vec4(const vec4& v) {
     x = v.x;
     y = v.y;
     z = v.z;
     w = v.w;
 }
 
-vec4& vec4::operator=(const vec4& rhs) {
+inline vec4& vec4::operator=(const vec4& rhs) {
     x = rhs.x;
     y = rhs.y;
     z = rhs.z;
@@ -61,11 +61,11 @@ vec4& vec4::operator=(const vec4& rhs) {
     return *this;
 }
 
-const vec4 vec4::operator+(const vec4& rhs) {
+inline const vec4 vec4::operator+(const vec4& rhs) {
     return vec4(x + rhs.x, y + rhs.y, z + rhs.z, w + rhs.w);
 }
 
-vec4& vec4::operator+=(const vec4& rhs) {
+inline vec4& vec4::operator+=(const vec4& rhs) {
     x += rhs.x;
     y += rhs.y;
     z += rhs.z;
@@ -73,15 +73,15 @@ vec4& vec4::operator+=(const vec4& rhs) {
     return *this;
 }
 
-const vec4 vec4::operator-() const {
+inline const vec4 vec4::operator-() const {
     return vec4(-x, -y, -z, -w);
 }
 
-const vec4 vec4::operator-(const vec4& rhs) const {
+inline const vec4 vec4::operator-(const vec4& rhs) const {
     return vec4(x - rhs.x, y - rhs.y, z - rhs.z, w - rhs.w);
 }
 
-vec4& vec4::operator-=(const vec4& rhs) {
+inline vec4& vec4::operator-=(const vec4& rhs) {
     x -= rhs.x;
     y -= rhs.y;
     z -= rhs.z;
@@ -89,7 +89,7 @@ vec4& vec4::operator-=(const vec4& rhs) {
     return *this;
 }
 
-vec4& vec4::operator*=(float scalar) {
+inline vec4& vec4::operator*=(float scalar) {
     x *= scalar;
     y *= scalar;
     z *= scalar;
@@ -97,11 +97,11 @@ vec4& vec4::operator*=(float scalar) {
     return *this;
 }
 
-const vec4 vec4::operator*(const float scalar) {
+inline const vec4 vec4::operator*(const float scalar) {
     return vec4(x * scalar, y * scalar, z * scalar, w * scalar);
 }
 
-bool vec4::operator==(const vec4& rhs) {
+inline bool vec4::operator==(const vec4& rhs) {
     if (x != rhs.x)
         return false;
     if (y != rhs.y)
@@ -113,7 +113,7 @@ bool vec4::operator==(const vec4& rhs) {
     return true;
 }
 
-bool vec4::operator!=(const vec4& rhs) {
+inline bool vec4::operator!=(const vec4& rhs) {
     if (x != rhs.x)
         return true;
     if (y != rhs.y)
@@ -125,7 +125,7 @@ bool vec4::operator!=(const vec4& rhs) {
     return false;
 }
 
-float& vec4::operator[](const size_t i) {
+inline float& vec4::operator[](const size_t i) {
     if (i == 0)
         return x;
     if (i == 1)
@@ -136,7 +136,7 @@ float& vec4::operator[](const size_t i) {
         return w;
 }
 
-const float& vec4::operator[](const size_t i) const {
+inline const float& vec4::operator[](const size_t i) const {
     if (i == 0)
         return x;
     if (i == 1)
@@ -147,7 +147,7 @@ const float& vec4::operator[](const size_t i) const {
         return w;
 }
 
-float dot(const vec4& a, const vec4& b) {
+inline float dot(const vec4& a, const vec4& b) {
     float num = 0;
     num += a.x * b.x;
     num += a.y * b.y;
@@ -157,13 +157,13 @@ float dot(const vec4& a, const vec4& b) {
 }
 
 // aka magnitude of vector
-float length(const vec4& v) {
+inline float length(const vec4& v) {
     float num = 0;
     num = sqrt(pow(v.x, 2) + pow(v.y, 2) + pow(v.z, 2) + pow(v.w, 2));
     return num;
 }
 
-vec4 normalize(const vec4& v) {
+inline vec4 normalize(const vec4& v) {
     float len = length(v);
     if (len == 0)
         return vec4(0.0f, 0.0f, 0.0f, 0.0f);
