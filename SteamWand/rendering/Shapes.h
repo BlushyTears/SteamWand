@@ -66,7 +66,7 @@ namespace Shapes {
             { 0.5f, -0.5f, -0.5f},
             { 0.5f,  0.5f, -0.5f},
             {-0.5f,  0.5f, -0.5f},
-            { 0.0f,  0.5f, 0.5f},
+            { 0.0f,   0.5f, 0.5f},
             { 0.0f,  -0.5f, 0.5f},
         };
 
@@ -88,6 +88,35 @@ namespace Shapes {
             }
 
             // Clockwise from outside = front face in DX12
+            uint32_t b = f * 4;
+            mesh.indices.insert(mesh.indices.end(), { b, b + 1, b + 2,  b, b + 2, b + 3 });
+        }
+
+        return mesh;
+    }
+
+    inline Mesh<Vertex> MakePlane() {
+        Mesh<Vertex> mesh;
+
+        const vec3 corners[8] = {
+            {-0.5f,  0.0f, 0.5f},
+            {-0.5f, 0.0f, -0.5f},
+            { 0.5f,  0.0f, 0.5f},
+            { 0.5f, 0.0f, -0.5f},
+        };
+
+        const uint32_t faces[2][4] = {
+            { 0, 1, 2, 0 },
+            { 3, 2, 1, 3 }
+        };
+
+        const float uvs[4][2] = { {0, 0}, {1, 0}, {1, 1}, {0, 1} };
+
+        for (uint32_t f = 0; f < 2; f++) {
+            for (uint32_t c = 0; c < 4; c++) {
+                mesh.vertices.push_back({ corners[faces[f][c]], uvs[c][0], uvs[c][1] });
+            }
+
             uint32_t b = f * 4;
             mesh.indices.insert(mesh.indices.end(), { b, b + 1, b + 2,  b, b + 2, b + 3 });
         }

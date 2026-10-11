@@ -17,6 +17,10 @@ void Start(Renderer& renderer) {
     GPUMesh prismMesh = renderer.UploadMesh(prismTriangleData);
     renderer.meshes.push_back({ prismMesh, vec3(1, -2, 2) });
 
+    auto planeData = Shapes::MakePlane();
+    GPUMesh planeMesh = renderer.UploadMesh(planeData);
+    renderer.meshes.push_back({ planeMesh, vec3(1, 0, 2) });
+
     //auto somethingData = Shapes::MakeSomething();
     //GPUMesh somethingMesh = renderer.UploadMesh(somethingData);
     //renderer.meshes.push_back({ somethingMesh, vec3(-1, -1, 1) });
