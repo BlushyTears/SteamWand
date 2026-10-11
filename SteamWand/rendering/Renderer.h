@@ -70,6 +70,7 @@ struct Renderer {
     HANDLE g_FenceEvent;
 
     std::vector<std::pair<GPUMesh, vec3>> meshes;
+    GPUTexture texture;
 
     bool g_VSync = true;
     bool g_TearingSupported = false;
@@ -95,7 +96,7 @@ struct Renderer {
     template<typename Vertex>
 
     GPUMesh UploadMesh(const Shapes::Mesh<Vertex>& mesh);
-    GPUTexture UploadTexture(const Image& image);
+    void UploadTexture(const Image& image);
     void DrawMesh(const GPUMesh& mesh, float x, float y, float size, float angle);
     void DrawMeshes();
 
@@ -586,7 +587,7 @@ GPUMesh Renderer::UploadMesh(const Shapes::Mesh<Vertex>& mesh) {
     return gpu;
 }
 
-inline GPUTexture Renderer::UploadTexture(const Image& image) {
+inline void Renderer::UploadTexture(const Image& image) {
     GPUTexture gpu;
 
     CD3DX12_HEAP_PROPERTIES defaultHeap(D3D12_HEAP_TYPE_DEFAULT);
@@ -624,7 +625,7 @@ inline GPUTexture Renderer::UploadTexture(const Image& image) {
 
     g_Device->CreateShaderResourceView(gpu.resource.Get(), nullptr, g_SRVDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
-    return gpu;
+    texture = gpu;
 }
 
 inline void Renderer::DrawMeshes() {

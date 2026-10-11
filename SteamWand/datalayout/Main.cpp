@@ -145,7 +145,7 @@ void printUsage() {
                  "Set arguments in Project Properties > Debugging > Command Arguments.\n";
 }
 
-} // namespace
+}
 
 int main(int argc, char* argv[]) {
     if (argc > 2) {
