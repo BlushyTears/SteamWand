@@ -79,8 +79,6 @@ struct Renderer {
 
     bool g_IsInitialized = false;
 
-    std::chrono::duration<float> deltaTime{};
-
     void Render();
     void SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLine, int nCmdShow);
     void CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC& pso,
@@ -90,7 +88,6 @@ struct Renderer {
         ComPtr<IDXGISwapChain4> swapChain, ComPtr<ID3D12DescriptorHeap> descriptorHeap);
 
     void Resize(uint32_t width, uint32_t height);
-    void Update();
 
     ComPtr<ID3D12Resource> CreateUploadBuffer(const void* data, size_t byteCount);
     template<typename Vertex>
@@ -418,30 +415,6 @@ inline void Renderer::Shutdown() {
     Flush(g_CommandQueue, g_Fence, g_FenceValue, g_FenceEvent);
     ::CloseHandle(g_FenceEvent);
     g_FenceEvent = nullptr;
-}
-
-inline void Renderer::Update() {
-    static uint64_t frameCounter = 0;
-    static double elapsedSeconds = 0.0;
-    static std::chrono::high_resolution_clock clock;
-    static auto t0 = clock.now();
-
-    frameCounter++;
-    auto t1 = clock.now();
-    this->deltaTime = t1 - t0;
-    t0 = t1;
-
-    elapsedSeconds += deltaTime.count() * 1e-9;
-
-    if (elapsedSeconds > 1.0) {
-        char buffer[500];
-        auto fps = frameCounter / elapsedSeconds;
-        sprintf_s(buffer, 500, "FPS: %f\n", fps);
-        OutputDebugStringA(buffer);
-
-        frameCounter = 0;
-        elapsedSeconds = 0.0;
-    }
 }
 
 inline void Renderer::Render() {

@@ -2,22 +2,34 @@
 
 using namespace Microsoft::WRL;
 
-void MoveAround(Renderer& renderer) {
-    if (inputHandler.isKeyDown(Button::MouseRight)) {
-        float step = 3.0f * std::chrono::duration<float>(renderer.deltaTime).count();
+static std::chrono::duration<float> deltaTime{};
 
-        vec3 forward = GetCameraForward();
-        vec3 right(std::cos(g_CameraYaw), 0.0f, -std::sin(g_CameraYaw));
+float GetDeltaTime() {
+    return deltaTime.count();
+}
 
-        vec3 movement(0.0f, 0.0f, 0.0f);
+static void UpdateFrameTime() {
+    static uint64_t frameCounter = 0;
+    static double elapsedSeconds = 0.0;
+    static std::chrono::high_resolution_clock clock;
+    static auto t0 = clock.now();
 
-        if (inputHandler.isKeyDown(Button::W)) movement += forward;
-        if (inputHandler.isKeyDown(Button::S)) movement -= forward;
-        if (inputHandler.isKeyDown(Button::A)) movement -= right;
-        if (inputHandler.isKeyDown(Button::D)) movement += right;
+    frameCounter++;
+    auto t1 = clock.now();
+    deltaTime = t1 - t0;
+    t0 = t1;
 
-        if (movement.dot(movement) > 0.0f)
-            g_CameraPosition += normalize(movement) * step;
+    elapsedSeconds += deltaTime.count();
+
+    if (elapsedSeconds > 1.0) {
+        char buffer[500];
+        auto fps = frameCounter / elapsedSeconds;
+        sprintf_s(buffer, 500, "FPS: %f\n", fps);
+        OutputDebugStringA(buffer);
+        SetWindowTextA(g_hWnd, buffer);
+
+        frameCounter = 0;
+        elapsedSeconds = 0.0;
     }
 }
 
@@ -37,6 +49,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
     MSG msg = {};
 
     while (msg.message != WM_QUIT) {
+        UpdateFrameTime();
         inputHandler.BeginFrame();
 
         while (::PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
@@ -45,15 +58,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
             }
             ::TranslateMessage(&msg);
             ::DispatchMessage(&msg);
-        }
-
-        if (inputHandler.isKeyDown(Button::MouseRight) && !inputHandler.isKeyPressed(Button::MouseRight)) {
-            float sensitivity = 0.003f;
-
-            g_CameraYaw += (inputHandler.mouseX - inputHandler.previousMouseX) * sensitivity;
-            g_CameraPitch -= (inputHandler.mouseY - inputHandler.previousMouseY) * sensitivity;
-
-            g_CameraPitch = std::clamp(g_CameraPitch, -1.5f, 1.5f);
         }
 
         if (msg.message == WM_QUIT || inputHandler.isKeyPressed(Button::Escape)) {
@@ -73,9 +77,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
             SetFullScreen(!g_FullScreen);
         }
 
-        MoveAround(renderer);
-        Update(renderer, renderer.deltaTime.count());
-        renderer.Update();
+        Update(renderer);
         renderer.Render();
     }
 

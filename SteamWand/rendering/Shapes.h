@@ -98,7 +98,7 @@ namespace Shapes {
     inline Mesh<Vertex> MakePlane() {
         Mesh<Vertex> mesh;
 
-        const vec3 corners[8] = {
+        const vec3 corners[4] = {
             {-0.5f,  0.0f, 0.5f},
             {-0.5f, 0.0f, -0.5f},
             { 0.5f,  0.0f, 0.5f},
@@ -106,8 +106,8 @@ namespace Shapes {
         };
 
         const uint32_t faces[2][4] = {
-            { 0, 1, 2, 0 },
-            { 3, 2, 1, 3 }
+            { 0, 2, 3, 1 },
+            { 1, 3, 2, 0 },
         };
 
         const float uvs[4][2] = { {0, 0}, {1, 0}, {1, 1}, {0, 1} };
@@ -123,23 +123,5 @@ namespace Shapes {
 
         return mesh;
     }
-
-    // Commented out for now
-    //inline Mesh<vec3>MakeSomething() {
-    //    Mesh<vec3> mesh;
-
-    //    mesh.vertices = {
-    //    {-0.5f, -0.5f, -0.5f},
-    //    { 0.5f, -0.5f, -0.5f},
-    //    { 0.5f,  0.5f, -0.5f},
-    //    };
-
-    //    mesh.indices = {
-    //        0, 1, 2,  0, 2, 3,
-    //        4, 6, 5,  4, 7, 6,
-    //    };
-
-    //    return mesh;
-    //}
 }
 
