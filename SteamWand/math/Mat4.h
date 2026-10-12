@@ -179,36 +179,32 @@ inline mat4 inverse(const mat4& m) {
 
 // Rotate about the x-axis
 inline mat4 rotationx(float rad) {
-    mat4 m;
-    m.vec[0] = vec4(1.0f, 0.0f, 0.0f, 0.0f);
-    m.vec[1] = vec4(0.0f, cos(rad), -sin(rad), 0.0f);
-    m.vec[2] = vec4(0.0f, sin(rad), cos(rad), 0.0f);
-    m.vec[3] = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-    return transpose(m);
+    return mat4(
+        vec4(1.0f, 0.0f, 0.0f, 0.0f),
+        vec4(0.0f, cos(rad), sin(rad), 0.0f),
+        vec4(0.0f, -sin(rad), cos(rad), 0.0f),
+        vec4(0.0f, 0.0f, 0.0f, 1.0f));
 }
 
 // Rotate about the y-axis
 inline mat4 rotationy(float rad) {
-    mat4 m;
-    m.vec[0] = vec4(cos(rad), 0.0f, sin(rad), 0.0f);
-    m.vec[1] = vec4(0.0f, 1.0f, 0.0f, 0.0f);
-    m.vec[2] = vec4(-sin(rad), 0.0f, cos(rad), 0.0f);
-    m.vec[3] = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-    return transpose(m);
+    return mat4(
+        vec4(cos(rad), 0.0f, -sin(rad), 0.0f),
+        vec4(0.0f, 1.0f, 0.0f, 0.0f),
+        vec4(sin(rad), 0.0f, cos(rad), 0.0f),
+        vec4(0.0f, 0.0f, 0.0f, 1.0f));
 }
 
 // Rotate about the z-axis
 inline mat4 rotationz(float rad) {
-    mat4 m;
-    m.vec[0] = vec4(cos(rad), -sin(rad), 0.0f, 0.0f);
-    m.vec[1] = vec4(sin(rad), cos(rad), 0.0f, 0.0f);
-    m.vec[2] = vec4(0.0f, 0.0f, 1.0f, 0.0f);
-    m.vec[3] = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-    return transpose(m);
+    return mat4(
+        vec4(cos(rad), sin(rad), 0.0f, 0.0f),
+        vec4(-sin(rad), cos(rad), 0.0f, 0.0f),
+        vec4(0.0f, 0.0f, 1.0f, 0.0f),
+        vec4(0.0f, 0.0f, 0.0f, 1.0f));
 }
 
 // Rotate about any axis using the roudriges formula
-// Note: w is 1, so we allow for translation as well
 inline mat4 rotationaxis(const vec3& v, const float rad) {
     vec3 axis = normalize(v);
 
@@ -220,56 +216,47 @@ inline mat4 rotationaxis(const vec3& v, const float rad) {
     float y = axis.y;
     float z = axis.z;
 
-    mat4 result;
-    result[0] = vec4(
-        cosTheta + x * x * oneMinusCosTheta,
-        x * y * oneMinusCosTheta - z * sinTheta,
-        x * z * oneMinusCosTheta + y * sinTheta,
-        0.0f
-    );
-    result[1] = vec4(
-        y * x * oneMinusCosTheta + z * sinTheta,
-        cosTheta + y * y * oneMinusCosTheta,
-        y * z * oneMinusCosTheta - x * sinTheta,
-        0.0f
-    );
-    result[2] = vec4(
-        z * x * oneMinusCosTheta - y * sinTheta,
-        z * y * oneMinusCosTheta + x * sinTheta,
-        cosTheta + z * z * oneMinusCosTheta,
-        0.0f
-    );
-    result[3] = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-
-    return transpose(result);
+    return mat4(
+        vec4(
+            cosTheta + x * x * oneMinusCosTheta,
+            y * x * oneMinusCosTheta + z * sinTheta,
+            z * x * oneMinusCosTheta - y * sinTheta,
+            0.0f),
+        vec4(
+            x * y * oneMinusCosTheta - z * sinTheta,
+            cosTheta + y * y * oneMinusCosTheta,
+            z * y * oneMinusCosTheta + x * sinTheta,
+            0.0f),
+        vec4(
+            x * z * oneMinusCosTheta + y * sinTheta,
+            y * z * oneMinusCosTheta - x * sinTheta,
+            cosTheta + z * z * oneMinusCosTheta,
+            0.0f),
+        vec4(0.0f, 0.0f, 0.0f, 1.0f));
 }
 
+// Left-handed (+Z forward cause that's the only valid way)
 inline mat4 perspective(float fovy, float aspect, float nearPlane, float farPlane) {
-    float tan_half_fovy = tan(fovy / 2.0f);
+    float scale = 1.0f / tan(fovy * 0.5f);
+    float depth = farPlane / (farPlane - nearPlane);
 
-    // Initialize as an identity matrix
-    mat4 result;
-
-    result[0] = vec4(1.0f / (aspect * tan_half_fovy), 0.0f, 0.0f, 0.0f);
-    result[1] = vec4(0.0f, 1.0f / tan_half_fovy, 0.0f, 0.0f);
-    result[2] = vec4(0.0f, 0.0f, (farPlane + nearPlane) / (farPlane - nearPlane), 2.0f * farPlane * nearPlane / (farPlane - nearPlane));
-    result[3] = vec4(0.0f, 0.0f, -1.0f, 0.0f);
-
-    return result;
+    return mat4(
+        vec4(scale / aspect, 0.0f, 0.0f, 0.0f),
+        vec4(0.0f, scale, 0.0f, 0.0f),
+        vec4(0.0f, 0.0f, depth, 1.0f),
+        vec4(0.0f, 0.0f, -nearPlane * depth, 0.0f));
 }
 
+// Left-handed (+Z forward cause that's the only valid way)
 inline mat4 lookat(const vec3& eye, const vec3& at, const vec3& up) {
-    vec3 forward = normalize(eye - at);
+    vec3 forward = normalize(at - eye);
     vec3 right = normalize(up.cross(forward));
     vec3 up_corrected = forward.cross(right);
 
-    mat4 result;
-
-    result[0] = vec4(right.x, right.y, right.z, 0.0f);
-    result[1] = vec4(up_corrected.x, up_corrected.y, up_corrected.z, 0.0f);
-    result[2] = vec4(-forward.x, -forward.y, -forward.z, 0.0f);
-    result[3] = vec4(-right.dot(eye), -up_corrected.dot(eye), forward.dot(eye), 1.0f);
-
-    return result;
+    return mat4(
+        vec4(right.x, up_corrected.x, forward.x, 0.0f),
+        vec4(right.y, up_corrected.y, forward.y, 0.0f),
+        vec4(right.z, up_corrected.z, forward.z, 0.0f),
+        vec4(-right.dot(eye), -up_corrected.dot(eye), -forward.dot(eye), 1.0f));
 }
 

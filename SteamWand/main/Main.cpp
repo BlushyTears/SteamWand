@@ -50,6 +50,6 @@ void Start(Renderer& renderer) {
     GPUMesh planeMesh = renderer.UploadMesh(planeData);
     renderer.meshes.push_back({ planeMesh, vec3(1, 0, 2) });
 
-    // Working directory is bin/x64/Debug/SteamWandMain, assets sits next to the .sln
+    // Reminder: Working directory is bin/x64/Debug/SteamWandMain
     renderer.UploadTexture(LoadImageFile("../../../../assets/checker.png"));
 }

@@ -19,6 +19,7 @@
 #include "../math/Vec3.h"
 #include "../math/Vec4.h"
 #include "../math/Mat4.h"
+#include "../math/Math.h"
 
 #include <cmath>
 
@@ -460,10 +461,11 @@ inline void Renderer::Render() {
         g_CommandList->SetDescriptorHeaps(_countof(heaps), heaps);
         g_CommandList->SetGraphicsRootDescriptorTable(1, g_SRVDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
-        mat4 viewProjection = GetCameraPosition(g_ClientWidth, g_ClientHeight) * GetCameraView();
+        float aspect = float(g_ClientWidth) / float(g_ClientHeight);
+        mat4 look = lookat(g_CameraPosition, g_CameraPosition + GetCameraForward(), vec3(0.0f, 1.0f, 0.0f));
+        mat4 viewProjection = perspective(radians(67.0f), aspect, 0.1f, 100.0f) * look;
 
         g_CommandList->SetGraphicsRoot32BitConstants(0, 16, &viewProjection.vec[0].x, 16);
-
         DrawMeshes();
     }
 
@@ -677,7 +679,13 @@ inline void Renderer::CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC
 
     pso.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
     pso.RasterizerState.FillMode = fillMode;
-    pso.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+
+    if (fillMode == D3D12_FILL_MODE_WIREFRAME) {
+        pso.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    }
+    else {
+        pso.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+    }
 
     pso.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
     pso.DepthStencilState.DepthEnable = FALSE;
