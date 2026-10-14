@@ -11,6 +11,7 @@
 
 #include <windowsx.h>
 
+// Clanker goes brrr
 enum class Button {
     // Mouse buttons
     MouseLeft = VK_LBUTTON,

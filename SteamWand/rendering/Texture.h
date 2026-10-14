@@ -8,7 +8,7 @@
 
 #include "../thirdparty/stb_image.h"
 
-// CPU side image, RGBA8 with the top row first (same order D3D expects, so no vertical flip)
+// CPU side image, RGBA8 with the top row first. Same order D3D expects, so no vertical flip is needed
 struct Image {
     uint32_t width = 0;
     uint32_t height = 0;
