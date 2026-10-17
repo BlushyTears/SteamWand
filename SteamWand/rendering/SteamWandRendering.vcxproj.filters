@@ -45,4 +45,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="ColoredShapes.hlsl">
+      <Filter>Resources</Filter>
+    </None>
+  </ItemGroup>
 </Project>

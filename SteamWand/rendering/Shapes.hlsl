@@ -36,4 +36,3 @@ float4 PSMesh(OutputElement input) : SV_Target
 {
     return g_texture.Sample(g_sampler, input.uv);
 }   
-

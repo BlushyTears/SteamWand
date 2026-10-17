@@ -93,7 +93,7 @@ struct Renderer {
     ComPtr<ID3D12Resource> CreateUploadBuffer(const void* data, size_t byteCount);
     template<typename Vertex>
 
-    GPUMesh UploadMesh(const Shapes::Mesh<Vertex>& mesh);
+    GPUMesh UploadMesh(const ColoredShapes::Mesh<Vertex>& mesh);
     void UploadTexture(const Image& image);
     void DrawMesh(const GPUMesh& mesh, float x, float y, float size, float angle);
     void DrawMeshes();
@@ -539,7 +539,7 @@ inline ComPtr<ID3D12Resource> Renderer::CreateUploadBuffer(const void* data, siz
 }
 
 template<typename Vertex>
-GPUMesh Renderer::UploadMesh(const Shapes::Mesh<Vertex>& mesh) {
+GPUMesh Renderer::UploadMesh(const ColoredShapes::Mesh<Vertex>& mesh) {
     GPUMesh gpu;
 
     UINT vertexBytes = static_cast<UINT>(mesh.vertices.size() * sizeof(Vertex));
@@ -582,7 +582,7 @@ inline void Renderer::UploadTexture(const Image& image) {
     commandAllocator->Reset();
     g_CommandList->Reset(commandAllocator.Get(), nullptr);
 
-    // Pads each row to 256 bytes in the upload buffer and records the copy into the texture
+    // Pads each row to 256 bytes in the upload buffer and records the copy into the txt
     D3D12_SUBRESOURCE_DATA pixels = { image.pixels.data(), image.width * 4, image.width * 4 * image.height };
     UpdateSubresources(g_CommandList.Get(), gpu.resource.Get(), uploadBuffer.Get(), 0, 0, 1, &pixels);
 
@@ -610,7 +610,6 @@ inline void Renderer::DrawMeshes() {
 }
 
 inline void Renderer::DrawMesh(const GPUMesh& mesh, float x, float y, float size, float angle) {
-    
     if (g_Wireframe) {
         g_CommandList->SetPipelineState(g_WireFramePipelineState.Get());
     }
@@ -668,8 +667,8 @@ inline void Renderer::CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC
 
     // this is probably not gonna work once we reference the shader from elsewhere, so we might need a relative path that's more scalable
     // both for other projects liek SteamWandMain to reference, but also future builds
-    auto vertexShader = CompileShader(L"Shapes.hlsl", vertexShaderProgram.c_str(), "vs_5_0");
-    auto pixelShader = CompileShader(L"Shapes.hlsl", pixelShaderProgram.c_str(), "ps_5_0");
+    auto vertexShader = CompileShader(L"ColoredShapes.hlsl", vertexShaderProgram.c_str(), "vs_5_0");
+    auto pixelShader = CompileShader(L"ColoredShapes.hlsl", pixelShaderProgram.c_str(), "ps_5_0");
 
     pso.pRootSignature = root_signature.Get();
     pso.VS = { vertexShader->GetBufferPointer(), vertexShader->GetBufferSize() };
@@ -805,16 +804,16 @@ inline void Renderer::SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstanc
         0
     };
 
-    D3D12_INPUT_ELEMENT_DESC textureElement = {
-        "TEXCOORD", 0,
-        DXGI_FORMAT_R32G32_FLOAT,
+    D3D12_INPUT_ELEMENT_DESC colorElement = {
+        "COLOR", 0,
+        DXGI_FORMAT_R32G32B32_FLOAT,
         0, 12,
         D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
         0
     };
 
     array[0] = positionElement;
-    array[1] = textureElement;
+    array[1] = colorElement;
         
     D3D12_GRAPHICS_PIPELINE_STATE_DESC meshPso = {};
     meshPso.InputLayout = { &array[0], _countof(array)};

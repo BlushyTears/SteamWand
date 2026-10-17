@@ -34,22 +34,38 @@ void Update(Renderer& renderer) {
 }
 
 void Start(Renderer& renderer) {
-    auto cubeData = Shapes::MakeCube();
+    //auto cubeData = Shapes::MakeCube();
+    //GPUMesh cubeMesh = renderer.UploadMesh(cubeData);
+    //renderer.meshes.push_back({ cubeMesh, vec3(1, 2, 1) });
+
+    //auto cubeData2 = Shapes::MakeCube();
+    //GPUMesh cubeMesh2 = renderer.UploadMesh(cubeData2);
+    //renderer.meshes.push_back({ cubeMesh2, vec3(4, 2, 2) });
+
+    //auto prismTriangleData = Shapes::MakeTriangularPrism();
+    //GPUMesh prismMesh = renderer.UploadMesh(prismTriangleData);
+    //renderer.meshes.push_back({ prismMesh, vec3(1, -2, 2) });
+
+    //auto planeData = Shapes::MakePlane();
+    //GPUMesh planeMesh = renderer.UploadMesh(planeData);
+    //renderer.meshes.push_back({ planeMesh, vec3(1, 0, 2) });
+
+    auto cubeData = ColoredShapes::MakeCube();
     GPUMesh cubeMesh = renderer.UploadMesh(cubeData);
     renderer.meshes.push_back({ cubeMesh, vec3(1, 2, 1) });
 
-    auto cubeData2 = Shapes::MakeCube();
+    auto cubeData2 = ColoredShapes::MakeCube();
     GPUMesh cubeMesh2 = renderer.UploadMesh(cubeData2);
     renderer.meshes.push_back({ cubeMesh2, vec3(4, 2, 2) });
 
-    auto prismTriangleData = Shapes::MakeTriangularPrism();
+    auto prismTriangleData = ColoredShapes::MakeTriangularPrism();
     GPUMesh prismMesh = renderer.UploadMesh(prismTriangleData);
     renderer.meshes.push_back({ prismMesh, vec3(1, -2, 2) });
 
-    auto planeData = Shapes::MakePlane();
+    auto planeData = ColoredShapes::MakePlane();
     GPUMesh planeMesh = renderer.UploadMesh(planeData);
     renderer.meshes.push_back({ planeMesh, vec3(1, 0, 2) });
 
     // Reminder: Working directory is bin/x64/Debug/SteamWandMain
-    renderer.UploadTexture(LoadImageFile("../../../../assets/checker.png"));
+    //renderer.UploadTexture(LoadImageFile("../../../../assets/checker.png"));
 }

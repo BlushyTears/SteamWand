@@ -37,6 +37,7 @@ static void UpdateFrameTime() {
 // These two functions are ugly exceptions since engine to game calls can only go through 
 // start and update (declared in app.h), essentially the engine calls code it didn't run so
 // it sort of works like a callback to resolve linking errors. Pattern is called "Inversion of control"
+// As a result, this is the only source file that you can't run as it's serving like a library that ties things together.
 _Use_decl_annotations_
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLine, int nCmdShow) {
 
