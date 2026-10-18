@@ -49,6 +49,7 @@
     <ClCompile Include="App.cpp" />
     <ClInclude Include="App.h" />
     <ClInclude Include="Camera.h" />
+    <ClInclude Include="D3DUTIL.h" />
     <ClInclude Include="d3dx12.h" />
     <ClInclude Include="Input.h" />
     <ClInclude Include="Renderer.h" />

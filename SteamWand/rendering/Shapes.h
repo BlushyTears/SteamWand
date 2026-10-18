@@ -6,17 +6,17 @@
 #include <cmath>
 #include "../math/Vec3.h"
 
+template<typename Vertex>
+struct Mesh {
+    std::vector<Vertex> vertices;
+    std::vector<uint32_t> indices;
+};
+
 namespace Shapes {
     struct Vertex {
         vec3 position;
         float u;
         float v;
-    };
-
-    template<typename Vertex>
-    struct Mesh {
-        std::vector<Vertex> vertices;
-        std::vector<uint32_t> indices;
     };
 
     inline Mesh<Vertex> MakeCube() {
@@ -130,12 +130,6 @@ namespace ColoredShapes {
         float r;
         float g;
         float b;
-    };
-
-    template<typename Vertex>
-    struct Mesh {
-        std::vector<Vertex> vertices;
-        std::vector<uint32_t> indices;
     };
 
     inline Mesh<Vertex> MakeCube(float r = 0.9f, float g = 0.45f, float b = 0.2f) {

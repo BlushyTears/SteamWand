@@ -28,7 +28,9 @@
 
 #include "Texture.h"
 
-using Microsoft::WRL::ComPtr;
+#include "D3DUtil.h"
+
+#include <span>
 
 inline constexpr uint8_t g_NumFrames = 3;
 
@@ -40,6 +42,39 @@ struct GPUMesh {
     D3D12_INDEX_BUFFER_VIEW indexView = {};
 
     UINT indexCount = 0;
+};
+
+struct Material {
+    ComPtr<ID3D12PipelineState> solid;
+    ComPtr<ID3D12PipelineState> wireframe;
+};
+
+
+
+inline const D3D12_INPUT_ELEMENT_DESC g_TexturedLayout[] = {
+    { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+    { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+};
+
+inline const D3D12_INPUT_ELEMENT_DESC g_ColoredLayout[] = {
+    { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+    { "COLOR", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+};
+
+template<typename V> struct VertexLayout;
+template<> struct VertexLayout<Shapes::Vertex> {
+    static std::span<const D3D12_INPUT_ELEMENT_DESC> get() { return g_TexturedLayout; }
+};
+
+template<> struct VertexLayout<ColoredShapes::Vertex> {
+    static std::span<const D3D12_INPUT_ELEMENT_DESC> get() { return g_ColoredLayout; }
+};
+
+struct RenderObject {
+    GPUMesh mesh;
+    vec3 position;
+    vec3 scale = {1, 1, 1};
+    uint32_t material;
 };
 
 struct GPUTexture {
@@ -55,9 +90,7 @@ struct Renderer {
     ComPtr<IDXGISwapChain4> g_SwapChain;
     ComPtr<ID3D12DescriptorHeap> g_RTVDescriptorHeap;
 
-    ComPtr<ID3D12PipelineState> g_WireFramePipelineState;
-
-    ComPtr<ID3D12PipelineState> g_MeshPipelineState;
+    std::vector<Material> materials;
 
     ComPtr<ID3D12RootSignature> root_signature;
 
@@ -70,7 +103,7 @@ struct Renderer {
     uint64_t g_FrameFenceValues[g_NumFrames] = {};
     HANDLE g_FenceEvent;
 
-    std::vector<std::pair<GPUMesh, vec3>> meshes;
+    std::vector<RenderObject> meshes;
     GPUTexture texture;
 
     bool g_VSync = true;
@@ -83,8 +116,9 @@ struct Renderer {
     void Render();
     void SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLine, int nCmdShow);
     void CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC& pso,
-        std::string vertexShaderProgram, std::string pixelShaderProgram,
+        const wchar_t* shaderFile, std::string vertexShaderProgram, std::string pixelShaderProgram,
         ComPtr<ID3D12PipelineState>& g_GenericPipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE topologyType, D3D12_FILL_MODE fillMode = D3D12_FILL_MODE_SOLID);
+
     void UpdateRenderTargetViews(ComPtr<ID3D12Device2> device,
         ComPtr<IDXGISwapChain4> swapChain, ComPtr<ID3D12DescriptorHeap> descriptorHeap);
 
@@ -93,10 +127,18 @@ struct Renderer {
     ComPtr<ID3D12Resource> CreateUploadBuffer(const void* data, size_t byteCount);
     template<typename Vertex>
 
-    GPUMesh UploadMesh(const ColoredShapes::Mesh<Vertex>& mesh);
+    GPUMesh UploadMesh(const Mesh<Vertex>& mesh);
     void UploadTexture(const Image& image);
-    void DrawMesh(const GPUMesh& mesh, float x, float y, float size, float angle);
+    void DrawMesh(const RenderObject& obj, float angle);
     void DrawMeshes();
+
+    uint32_t CreateMaterial(const wchar_t* shaderFile, const D3D12_INPUT_ELEMENT_DESC* layout, UINT layoutCount);
+
+    template<typename V>
+    uint32_t CreateMaterial(const wchar_t* shaderFile) {
+        auto layout = VertexLayout<V>::get();
+        return CreateMaterial(shaderFile, layout.data(), static_cast<UINT>(layout.size()));
+    }
 
     void Shutdown();
 
@@ -105,219 +147,11 @@ struct Renderer {
     UINT g_SRVDescriptorSize = 0;
 };
 
-inline uint32_t g_ClientWidth = 1280;
-inline uint32_t g_ClientHeight = 720;
-
-// This akward placement of a library should be fixed once we move wndproc into a source file
+// This has to be put akwardly here annoyingly so
 #include "Window.h"
 
-inline void ThrowIfFailed(HRESULT hr) {
-    if (FAILED(hr)) {
-        throw std::exception();
-    }
-}
-
-inline void EnableDebugLayer() {
-#if defined (_DEBUG)
-    ComPtr<ID3D12Debug> debugInterface;
-    ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(&debugInterface)));
-    debugInterface->EnableDebugLayer();
-#endif
-}
-
-inline ComPtr<IDXGIAdapter4> GetAdapter(bool useWarp) {
-    ComPtr<IDXGIFactory4> dxgiFactory;
-    UINT createFactoryFlags = 0;
-#if defined(_DEBUG)
-    createFactoryFlags = DXGI_CREATE_FACTORY_DEBUG;
-#endif
-
-    ThrowIfFailed(CreateDXGIFactory2(createFactoryFlags, IID_PPV_ARGS(&dxgiFactory)));
-
-    ComPtr<IDXGIAdapter1> dxgiAdapter1;
-    ComPtr<IDXGIAdapter4> dxgiAdapter4;
-
-    if (useWarp)
-    {
-        ThrowIfFailed(dxgiFactory->EnumWarpAdapter(IID_PPV_ARGS(&dxgiAdapter1)));
-        ThrowIfFailed(dxgiAdapter1.As(&dxgiAdapter4));
-    }
-    else {
-        SIZE_T maxDedicatedVideoMemory = 0;
-
-        for (UINT i = 0; dxgiFactory->EnumAdapters1(i, &dxgiAdapter1) != DXGI_ERROR_NOT_FOUND; ++i) {
-            DXGI_ADAPTER_DESC1 dxgiAdapterDesc1;
-            dxgiAdapter1->GetDesc1(&dxgiAdapterDesc1);
-
-            if ((dxgiAdapterDesc1.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0 &&
-                SUCCEEDED(D3D12CreateDevice(dxgiAdapter1.Get(),
-                    D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), nullptr)) &&
-                dxgiAdapterDesc1.DedicatedVideoMemory > maxDedicatedVideoMemory) {
-
-                maxDedicatedVideoMemory = dxgiAdapterDesc1.DedicatedVideoMemory;
-                ThrowIfFailed(dxgiAdapter1.As(&dxgiAdapter4));
-
-            }
-        }
-    }
-
-    return dxgiAdapter4;
-}
-
-inline ComPtr<ID3D12Device2> CreateDevice(ComPtr<IDXGIAdapter4> adapter) {
-    ComPtr<ID3D12Device2> d3d12Device2;
-    ThrowIfFailed(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&d3d12Device2)));
-
-#if defined(_DEBUG)
-    ComPtr<ID3D12InfoQueue> pInfoQueue;
-    if (SUCCEEDED(d3d12Device2.As(&pInfoQueue))) {
-        pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE);
-        pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, TRUE);
-        pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, TRUE);
-
-        D3D12_MESSAGE_SEVERITY Severities[] =
-        {
-            D3D12_MESSAGE_SEVERITY_INFO
-        };
-
-        D3D12_MESSAGE_ID DenyIds[] = {
-            D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
-            D3D12_MESSAGE_ID_MAP_INVALID_NULLRANGE,
-            D3D12_MESSAGE_ID_UNMAP_INVALID_NULLRANGE,
-        };
-
-        D3D12_INFO_QUEUE_FILTER NewFilter = {};
-
-        NewFilter.DenyList.NumSeverities = _countof(Severities);
-        NewFilter.DenyList.pSeverityList = Severities;
-        NewFilter.DenyList.NumIDs = _countof(DenyIds);
-        NewFilter.DenyList.pIDList = DenyIds;
-
-        ThrowIfFailed(pInfoQueue->PushStorageFilter(&NewFilter));
-    }
-#endif
-
-    return d3d12Device2;
-}
-
-inline ComPtr<ID3D12CommandQueue> CreateCommandQueue(ComPtr<ID3D12Device2> device, D3D12_COMMAND_LIST_TYPE type) {
-    ComPtr<ID3D12CommandQueue> d3d12CommandQueue;
-
-    D3D12_COMMAND_QUEUE_DESC desc = {};
-    desc.Type = type;
-    desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-    desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-    desc.NodeMask = 0;
-
-    ThrowIfFailed(device->CreateCommandQueue(&desc, IID_PPV_ARGS(&d3d12CommandQueue)));
-    return d3d12CommandQueue;
-}
-
-inline bool CheckTearingSupport() {
-    BOOL allowTearing = false;
-
-    ComPtr<IDXGIFactory4> factory4;
-
-    if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory4)))) {
-        ComPtr<IDXGIFactory5> factory5;
-        if (SUCCEEDED(factory4.As(&factory5))) {
-            if (FAILED(factory5->CheckFeatureSupport(
-                DXGI_FEATURE_PRESENT_ALLOW_TEARING,
-                &allowTearing, sizeof(allowTearing)
-            )))
-            {
-                allowTearing = false;
-            }
-        }
-    }
-
-    return allowTearing == TRUE;
-}
-
-inline ComPtr<IDXGISwapChain4> CreateSwapChain(
-    HWND hWnd,
-    ComPtr<ID3D12CommandQueue> commandQueue,
-    uint32_t width,
-    uint32_t height,
-    uint32_t bufferCount)
-{
-    ComPtr<IDXGISwapChain4> dxgiSwapChain4;
-    ComPtr<IDXGIFactory4> dxgiFactory4;
-
-    UINT createFactoryFlags = 0;
-
-#if defined(_DEBUG)
-    createFactoryFlags = DXGI_CREATE_FACTORY_DEBUG;
-#endif
-
-    ThrowIfFailed(
-        CreateDXGIFactory2(
-            createFactoryFlags,
-            IID_PPV_ARGS(&dxgiFactory4)
-        )
-    );
-
-    DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
-
-    swapChainDesc.Width = width;
-    swapChainDesc.Height = height;
-    swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    swapChainDesc.Stereo = FALSE;
-
-    swapChainDesc.SampleDesc = { 1, 0 };
-
-    swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    swapChainDesc.BufferCount = bufferCount;
-    swapChainDesc.Scaling = DXGI_SCALING_STRETCH;
-    swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-    swapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
-
-    swapChainDesc.Flags =
-        CheckTearingSupport()
-        ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING
-        : 0;
-
-    ComPtr<IDXGISwapChain1> swapChain1;
-
-    ThrowIfFailed(
-        dxgiFactory4->CreateSwapChainForHwnd(
-            commandQueue.Get(),
-            hWnd,
-            &swapChainDesc,
-            nullptr,
-            nullptr,
-            &swapChain1
-        )
-    );
-
-    ThrowIfFailed(
-        dxgiFactory4->MakeWindowAssociation(
-            hWnd,
-            DXGI_MWA_NO_ALT_ENTER
-        )
-    );
-
-    ThrowIfFailed(
-        swapChain1.As(&dxgiSwapChain4)
-    );
-
-    return dxgiSwapChain4;
-}
-
-inline ComPtr<ID3D12DescriptorHeap> CreateDescriptorHeap(ComPtr<ID3D12Device2> device,
-    D3D12_DESCRIPTOR_HEAP_TYPE type, uint32_t numDescriptors, D3D12_DESCRIPTOR_HEAP_FLAGS flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE) {
-
-    ComPtr<ID3D12DescriptorHeap> descriptorHeap;
-
-    D3D12_DESCRIPTOR_HEAP_DESC desc = {};
-    desc.NumDescriptors = numDescriptors;
-    desc.Type = type;
-    desc.Flags = flags;
-
-    ThrowIfFailed(device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&descriptorHeap)));
-
-    return descriptorHeap;
-}
+inline uint32_t g_ClientWidth = 1280;
+inline uint32_t g_ClientHeight = 720;
 
 inline void Renderer::UpdateRenderTargetViews(ComPtr<ID3D12Device2> device,
     ComPtr<IDXGISwapChain4> swapChain, ComPtr<ID3D12DescriptorHeap> descriptorHeap) {
@@ -335,81 +169,6 @@ inline void Renderer::UpdateRenderTargetViews(ComPtr<ID3D12Device2> device,
         g_BackBuffers[i] = backBuffer;
         rtvHandle.Offset(rtvDescriptorSize);
     }
-}
-
-inline ComPtr<ID3D12CommandAllocator> CreateCommandAllocator(ComPtr<ID3D12Device2> device, D3D12_COMMAND_LIST_TYPE type) {
-    ComPtr<ID3D12CommandAllocator> commandAllocator;
-
-    ThrowIfFailed(device->CreateCommandAllocator(type, IID_PPV_ARGS(&commandAllocator)));
-
-    return commandAllocator;
-}
-
-inline ComPtr<ID3D12GraphicsCommandList> CreateCommandList(ComPtr<ID3D12Device2> device, ComPtr<ID3D12CommandAllocator> commandAllocator,
-    D3D12_COMMAND_LIST_TYPE type) {
-
-    ComPtr<ID3D12GraphicsCommandList> commandList;
-
-    ThrowIfFailed(device->CreateCommandList(0, type, commandAllocator.Get(), nullptr, IID_PPV_ARGS(&commandList)));
-
-    ThrowIfFailed(commandList->Close());
-
-    return commandList;
-}
-
-inline ComPtr<ID3D12Fence> CreateFence(ComPtr<ID3D12Device2> device) {
-
-    ComPtr<ID3D12Fence> fence;
-
-    ThrowIfFailed(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
-
-    return fence;
-}
-
-inline HANDLE CreateEventHandle() {
-    HANDLE fenceEvent;
-
-    fenceEvent = ::CreateEvent(NULL, FALSE, FALSE, NULL);
-
-    assert(fenceEvent && "Failed to create fence event");
-
-    return fenceEvent;
-}
-
-inline uint64_t Signal(ComPtr<ID3D12CommandQueue> commandQueue, ComPtr<ID3D12Fence> fence, uint64_t& fenceValue) {
-    uint64_t fenceValueForSignal = ++fenceValue;
-
-    ThrowIfFailed(commandQueue->Signal(fence.Get(), fenceValueForSignal));
-
-    return fenceValueForSignal;
-}
-
-inline void WaitForFenceValue(
-    ComPtr<ID3D12Fence> fence,
-    uint64_t fenceValue,
-    HANDLE fenceEvent)
-{
-    if (fence->GetCompletedValue() < fenceValue)
-    {
-        ThrowIfFailed(
-            fence->SetEventOnCompletion(
-                fenceValue,
-                fenceEvent
-            )
-        );
-
-        ::WaitForSingleObject(
-            fenceEvent,
-            INFINITE
-        );
-    }
-}
-
-inline void Flush(ComPtr<ID3D12CommandQueue> commandQueue, ComPtr<ID3D12Fence> fence, uint64_t& fenceValue, HANDLE fenceEvent) {
-
-    uint64_t fenceValueForSignal = Signal(commandQueue, fence, fenceValue);
-
-    WaitForFenceValue(fence, fenceValueForSignal, fenceEvent);
 }
 
 inline void Renderer::Shutdown() {
@@ -539,7 +298,7 @@ inline ComPtr<ID3D12Resource> Renderer::CreateUploadBuffer(const void* data, siz
 }
 
 template<typename Vertex>
-GPUMesh Renderer::UploadMesh(const ColoredShapes::Mesh<Vertex>& mesh) {
+GPUMesh Renderer::UploadMesh(const Mesh<Vertex>& mesh) {
     GPUMesh gpu;
 
     UINT vertexBytes = static_cast<UINT>(mesh.vertices.size() * sizeof(Vertex));
@@ -603,40 +362,55 @@ inline void Renderer::UploadTexture(const Image& image) {
     texture = gpu;
 }
 
+
+
+inline uint32_t Renderer::CreateMaterial(const wchar_t* shaderFile, const D3D12_INPUT_ELEMENT_DESC* layout, UINT layoutCount) {
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso = {};
+
+    pso.InputLayout = { layout, layoutCount};
+
+    Material material;
+
+    CreatePipelinePrimitive(pso, shaderFile, "VSMesh", "PSMesh", material.solid, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE);
+    CreatePipelinePrimitive(pso, shaderFile, "VSMesh", "PSMesh", material.wireframe, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE, D3D12_FILL_MODE_WIREFRAME);
+
+    materials.push_back(material);
+
+    return static_cast<uint32_t>(materials.size() - 1);
+}
+
 inline void Renderer::DrawMeshes() {
-    for (auto& [mesh, position] : meshes) {
-        DrawMesh(mesh, position.x, position.y, position.z, g_CubeAngle);
+    for (const RenderObject& obj : meshes) {
+        DrawMesh(obj, g_CubeAngle);
     }
 }
 
-inline void Renderer::DrawMesh(const GPUMesh& mesh, float x, float y, float size, float angle) {
-    if (g_Wireframe) {
-        g_CommandList->SetPipelineState(g_WireFramePipelineState.Get());
-    }
-    else {
-        g_CommandList->SetPipelineState(g_MeshPipelineState.Get());
-    }
+inline void Renderer::DrawMesh(const RenderObject& obj, float angle) {
+
+    const Material& mat = materials[obj.material];
+    g_CommandList->SetPipelineState(g_Wireframe ? mat.wireframe.Get() : mat.solid.Get());
 
     g_CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-    g_CommandList->IASetVertexBuffers(0, 1, &mesh.vertexView);
+    g_CommandList->IASetVertexBuffers(0, 1, &obj.mesh.vertexView);
 
-    g_CommandList->IASetIndexBuffer(&mesh.indexView);
+    g_CommandList->IASetIndexBuffer(&obj.mesh.indexView);
 
     mat4 scale;
-    scale.vec[0].x = size;
-    scale.vec[1].y = size;
-    scale.vec[2].z = size;
+    scale.vec[0].x = obj.scale.x;
+    scale.vec[1].y = obj.scale.y;
+    scale.vec[2].z = obj.scale.z;
 
     mat4 rotation = rotationx(angle) * rotationy(angle);
 
     mat4 translation;
-    translation.vec[3] = vec4(x, y, 0.0f, 1.0f);
+    translation.vec[3] = vec4(obj.position.x, obj.position.y, obj.position.z, 1.0f);
 
     mat4 model = translation * rotation * scale;
 
     g_CommandList->SetGraphicsRoot32BitConstants(0, 16, &model.vec[0].x, 0);
-    g_CommandList->DrawIndexedInstanced(mesh.indexCount, 1, 0, 0, 0);
+    g_CommandList->DrawIndexedInstanced(obj.mesh.indexCount, 1, 0, 0, 0);
 }
 
 inline ComPtr<ID3DBlob> CompileShader(const wchar_t* file, const char* entryPoint, const char* target) {
@@ -658,7 +432,7 @@ inline ComPtr<ID3DBlob> CompileShader(const wchar_t* file, const char* entryPoin
     return shader;
 }
 
-inline void Renderer::CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC& pso,
+inline void Renderer::CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC& pso, const wchar_t* shaderFile,
     std::string vertexShaderProgram, std::string pixelShaderProgram,
     ComPtr<ID3D12PipelineState>& g_GenericPipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE topologyType,
     D3D12_FILL_MODE fillMode) {
@@ -667,8 +441,8 @@ inline void Renderer::CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC
 
     // this is probably not gonna work once we reference the shader from elsewhere, so we might need a relative path that's more scalable
     // both for other projects liek SteamWandMain to reference, but also future builds
-    auto vertexShader = CompileShader(L"ColoredShapes.hlsl", vertexShaderProgram.c_str(), "vs_5_0");
-    auto pixelShader = CompileShader(L"ColoredShapes.hlsl", pixelShaderProgram.c_str(), "ps_5_0");
+    auto vertexShader = CompileShader(shaderFile, vertexShaderProgram.c_str(), "vs_5_0");
+    auto pixelShader = CompileShader(shaderFile, pixelShaderProgram.c_str(), "ps_5_0");
 
     pso.pRootSignature = root_signature.Get();
     pso.VS = { vertexShader->GetBufferPointer(), vertexShader->GetBufferSize() };
@@ -793,33 +567,6 @@ inline void Renderer::SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstanc
     HRESULT hr;
 
     root_signature = CreateShapeRootSignature(g_Device, hr);
-
-    D3D12_INPUT_ELEMENT_DESC array[2];
-    
-    D3D12_INPUT_ELEMENT_DESC positionElement = { 
-        "POSITION", 0,
-        DXGI_FORMAT_R32G32B32_FLOAT,
-        0, 0,
-        D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
-        0
-    };
-
-    D3D12_INPUT_ELEMENT_DESC colorElement = {
-        "COLOR", 0,
-        DXGI_FORMAT_R32G32B32_FLOAT,
-        0, 12,
-        D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
-        0
-    };
-
-    array[0] = positionElement;
-    array[1] = colorElement;
-        
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC meshPso = {};
-    meshPso.InputLayout = { &array[0], _countof(array)};
-
-    CreatePipelinePrimitive(meshPso, "VSMesh", "PSMesh", g_MeshPipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE);
-    CreatePipelinePrimitive(meshPso, "VSMesh", "PSMesh", g_WireFramePipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE, D3D12_FILL_MODE_WIREFRAME);
 
     for (int i = 0; i < g_NumFrames; i++) {
         g_CommandAllocators[i] = CreateCommandAllocator(g_Device, D3D12_COMMAND_LIST_TYPE_DIRECT);
