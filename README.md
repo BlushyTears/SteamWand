@@ -2,7 +2,7 @@
 
 #### A modular, data-oriented C++ engine built on axiomatic composition to gain the benefits of conventional OOP benefits without the undesired inheritence bloat and the likes. Everything data-related is an atom that lives in a defined world of potentially worlds if so wished for. 
 
-#### Rendering is driven by Directx12 and the long-term vision is potentially a more plugin-like architechture but for now it remains staticly linked modules and an tied with a main loop.
+#### Rendering is driven by Directx12 and the long-term vision is likely a more plugin-like architechture (Use the parts you want) but for now it remains staticly linked modules and an tied with a main loop, aka no interfaces connecting them.
 
 ---
 
@@ -22,7 +22,7 @@ I always disliked the implicit relationship of an entity just being an ID and co
 
 There are numerous other problems like that with ECS that just made it feel like poor design - not to mention it being overkill for most games (A typical game might only have 100 or so active entities at its peak). I also don't like how you can't normally attatch entities with each other very easily (For instance if two enemies merge and combine their capabilities you'd probably have to copy the data of these two enemies, make a new enemy struct with this data, instantiate it, delete the old enemies completely if you were using ECS). 
 
-I wanted to go against the norm with this system. The whole idea is that you revert the relationship and have the Use one World or many Worlds based on your needs. Each World owns its local data, stored in slabs grouped by type and allocated when you first insert that type. Custom C++ types are registered automatically. Keep related fields in one record, and use typed Atoms when values need separate lifetimes. Worlds can be nested, moved and accessed directly for bulk work, or you can have a more flexible system than OOP whilst still being extremely fast.
+I wanted to go against the norm with this system. The whole idea is that you revert the relationship and make things from the ground up, and compose them based on the requirements of your particular needs without having to compromise or perform hacky solutions. Each World owns its data locally, is stored in slabs grouped by type and allocated when you first insert that type. Custom C++ types are registered automatically without you having to do anything. Worlds can be nested, moved and accessed directly for bulk work, or you can have a more flexible system than OOP whilst still being extremely fast.
 
 ---
 
@@ -164,9 +164,9 @@ nested.add<int32_t>(100);
 World& nestedWorld = universe.attach_world(nested);   // nested is now empty
 ```
 
-Attachment moves the storage internally and leaves the source World empty. Existing Atoms and WorldRefs follow it. The moved-from World is reusable; its next insertion gets a fresh identity. Moving into an existing World invalidates that destination's earlier Atoms. Self-attachment and ownership cycles through directly stored Worlds throw `std::logic_error` in Debug and Release.
+Attachment moves the storage internally and leaves the source World empty.
 
-Worlds embedded inside other stored types are not tracked by recursive cleanup or ownership-cycle checks. Store child Worlds directly as shown above.
+Worlds embedded inside other stored types are not tracked by recursive cleanup or ownership-cycle checks (yet). Store child Worlds directly as shown above.
 
 ---
 
@@ -199,7 +199,7 @@ world.add<int32_t>(7); // reuses the same memory
 
 `discard()` empties the World. Anything you added is gone, but the World itself is ready to use again. Atoms from before the discard no longer point at anything.
 
-Use `clear<T>()` to clear one type and cancel its queued removals. `cleanup()` applies this World's queued removals; `cleanup_tree()` also processes directly stored child Worlds recursively. Scope destruction releases live values and owned children automatically. Stored destructors must not throw or call operations that change their World's storage.
+Use `clear<T>()` to clear one slab and cancel its queued removals. `cleanup()` applies this World's queued removals; `cleanup_tree()` also processes directly stored child Worlds recursively.
 
 ---
 
@@ -223,11 +223,11 @@ void example() {
 
 ## Technical considerations
 
-Slabs are fixed capacity. The `cap` you pass to `World(cap)` must be positive; zero capacity throws `std::invalid_argument`. It is a hard limit per type; exceeding it throws `std::length_error`. These checks run in Debug and Release. Allocation failures also remain runtime errors.
+Slabs are fixed capacity. The `cap` you pass to `World(cap)` must be positive. It is a hard limit per type; exceeding it throws `std::length_error`, there are ideas of using a linked-list system to support bigger caps.
 
-Deleted slots are reused without moving other live values. Slots occupy contiguous memory, but deletion can leave holes. Removing, clearing, discarding or destroying a value ends its lifetime. Pointers to other live values survive slot reuse and World moves. Raw slot access does not block World operations; keep track of when those pointers are valid.
+Deleted slots are reused without moving other live values. Slots occupy contiguous memory, but deletion will leave holes. Removing, clearing, discarding or destroying a value ends its lifetime. Pointers to other live values survive slot reuse and World moves. Raw slot access does not block World operations; keep track of when those pointers are valid.
 
-World data is not thread-safe atm. Synchronize access yourself if you use it from multiple threads. Type registration is synchronized, but runtime type IDs are not stable identifiers for saved files.
+World data is not thread-safe atm. Synchronize access yourself if you use it from multiple threads (One idea could be to give worlds a semaphore or equivalent to lock a world so only one thread can use it at once). Type registration is synchronized atm, but runtime type IDs are not stable identifiers for saved files.
 
 ---
 
