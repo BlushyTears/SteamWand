@@ -8,7 +8,7 @@
 
 ## AI Note:
 
-#### The philosophy of SteamWand is LLM-based assistance without reliance. In other words; AI is used to speed up the development without AI-induced tech debt.
+#### The philosophy of SteamWand is LLM-based assistance without reliance/vibe-coding. In other words; AI is used to speed up the development without AI-induced tech debt.
 
 ---
 
@@ -18,7 +18,9 @@ Clone this repo and Open **SteamWand.sln** in Visual Studio 2022 (Other versions
 
 ## Core Philosophy of DCS (Dynamic component system)
 
-Use one World or many Worlds based on your needs. Each World owns its local data, stored in slabs grouped by type and allocated when you first insert that type. Custom C++ types are registered automatically. Keep related fields in one record, and use typed Atoms when values need separate lifetimes. Worlds can be nested, moved and accessed directly for bulk work.
+I always disliked the implicit relationship of an entity just being an ID and components being contigious lists with each entity owning 1 share of everything. For instance, what if you wanted the same entity to own two components such as two swords: Well either you have to create a new component for that 1 particular need- or you need to expand your component struct to have additional data. Both approaches just feel clunky. There are numerous other problems like that with ECS that just made it feel like poor design - not to mention it being overkill for most games (A typical game might only have 100 or so active entities at its peak). I also don't like how you can't normally attatch entities with each other very easily (For instance if two enemies merge and combine their capabilities you'd probably have to create an entirely new struct if you were using ECS). 
+
+I wanted to go against the norm with this system. The whole idea is that you revert the relationship and have the Use one World or many Worlds based on your needs. Each World owns its local data, stored in slabs grouped by type and allocated when you first insert that type. Custom C++ types are registered automatically. Keep related fields in one record, and use typed Atoms when values need separate lifetimes. Worlds can be nested, moved and accessed directly for bulk work, or you can have a more flexible system than OOP whilst still being extremely fast.
 
 ---
 
@@ -120,8 +122,6 @@ for (auto [atom, body] : world.iter_atoms<Body>()) {
 }
 world.cleanup();
 ```
-
-You can edit values and queue removals during iteration. Const Worlds give const references. Finish the views before adding, clearing, applying cleanup or moving their World; conflicting operations throw `std::logic_error` in Debug and Release. Keep a view alive and do not move it while using its iterators. Destroying a World with an active view, including a view in an owned child, terminates the program.
 
 ---
 
@@ -231,7 +231,7 @@ World data is not thread-safe atm. Synchronize access yourself if you use it fro
 
 ## Planned Features
 
-Dense packing, slab growth, coroutines, interface for domain-specific functions and serialization remain future work.
+Dense packing, slab growth, maybe coroutines, interface for domain-specific functions and serialization remain future work.
 
 ---
 
