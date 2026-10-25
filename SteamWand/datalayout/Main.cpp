@@ -148,35 +148,35 @@ void printUsage() {
 }
 
 int main(int argc, char* argv[]) {
-    //if (argc > 2) {
-    //    printUsage();
-    //    return 1;
-    //}
+    if (argc > 2) {
+        printUsage();
+        return 1;
+    }
 
-    //const std::string_view mode = argc == 2 ? argv[1] : "--examples";
-    //try {
-    //    if (mode == "--examples") {
-    //        runExamples();
-    //    }
-    //    else if (mode == "--benchmarks") {
-    //        runBenchmarks();
-    //    }
-    //    else if (mode == "--snake") {
-    //        SnakeGame snake;
-    //        snake.run();
-    //    }
-    //    else if (mode == "--help" || mode == "-h") {
-    //        printUsage();
-    //    }
-    //    else {
-    //        std::cerr << "Unknown option: " << mode << '\n';
-    //        printUsage();
-    //        return 1;
-    //    }
-    //}
-    //catch (const std::exception& error) {
-    //    std::cerr << "Data-layout runner failed: " << error.what() << '\n';
-    //    return 1;
-    //}
-    //return 0;
+    const std::string_view mode = argc == 2 ? argv[1] : "--examples";
+    try {
+        if (mode == "--examples") {
+            runExamples();
+        }
+        else if (mode == "--benchmarks") {
+            runBenchmarks();
+        }
+        else if (mode == "--snake") {
+            SnakeGame snake;
+            snake.run();
+        }
+        else if (mode == "--help" || mode == "-h") {
+            printUsage();
+        }
+        else {
+            std::cerr << "Unknown option: " << mode << '\n';
+            printUsage();
+            return 1;
+        }
+    }
+    catch (const std::exception& error) {
+        std::cerr << "Data-layout runner failed: " << error.what() << '\n';
+        return 1;
+    }
+    return 0;
 }

@@ -25,11 +25,8 @@
 
 #include "Camera.h"
 #include <cstring>
-
 #include "Texture.h"
-
 #include "D3DUtil.h"
-
 #include <span>
 
 inline constexpr uint8_t g_NumFrames = 3;
@@ -48,8 +45,6 @@ struct Material {
     ComPtr<ID3D12PipelineState> solid;
     ComPtr<ID3D12PipelineState> wireframe;
 };
-
-
 
 inline const D3D12_INPUT_ELEMENT_DESC g_TexturedLayout[] = {
     { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,  D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -74,15 +69,17 @@ struct RenderObject {
     GPUMesh mesh;
     vec3 position;
     vec3 scale = {1, 1, 1};
+    vec3 rotation = {0, 0, 0};
     uint32_t material;
+    uint32_t texture = 0;
 };
 
 struct GPUTexture {
     ComPtr<ID3D12Resource> resource;
+    uint32_t srvIndex = 0;
 };
 
 struct Renderer {
-
     ComPtr<ID3D12DescriptorHeap> g_SRVDescriptorHeap;
     ComPtr<ID3D12GraphicsCommandList> g_CommandList;
     ComPtr<ID3D12CommandAllocator> g_CommandAllocators[g_NumFrames];
@@ -91,11 +88,8 @@ struct Renderer {
     ComPtr<ID3D12DescriptorHeap> g_RTVDescriptorHeap;
 
     std::vector<Material> materials;
-
     ComPtr<ID3D12RootSignature> root_signature;
-
     ComPtr<ID3D12Device2> g_Device;
-
     ComPtr<ID3D12Resource> g_BackBuffers[g_NumFrames];
 
     ComPtr<ID3D12Fence> g_Fence;
@@ -104,7 +98,9 @@ struct Renderer {
     HANDLE g_FenceEvent;
 
     std::vector<RenderObject> meshes;
-    GPUTexture texture;
+    std::vector<GPUTexture> textures;
+    static constexpr int kMaxTextures = 256;
+    uint32_t nextSRVIndex = 0;
 
     bool g_VSync = true;
     bool g_TearingSupported = false;
@@ -128,8 +124,8 @@ struct Renderer {
     template<typename Vertex>
 
     GPUMesh UploadMesh(const Mesh<Vertex>& mesh);
-    void UploadTexture(const Image& image);
-    void DrawMesh(const RenderObject& obj, float angle);
+    uint32_t UploadTexture(const Image& image);
+    void DrawMesh(const RenderObject& obj);
     void DrawMeshes();
 
     uint32_t CreateMaterial(const wchar_t* shaderFile, const D3D12_INPUT_ELEMENT_DESC* layout, UINT layoutCount);
@@ -218,7 +214,7 @@ inline void Renderer::Render() {
         };
 
         g_CommandList->SetDescriptorHeaps(_countof(heaps), heaps);
-        g_CommandList->SetGraphicsRootDescriptorTable(1, g_SRVDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+        //g_CommandList->SetGraphicsRootDescriptorTable(1, g_SRVDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
         float aspect = float(g_ClientWidth) / float(g_ClientHeight);
         mat4 look = lookat(g_CameraPosition, g_CameraPosition + GetCameraForward(), vec3(0.0f, 1.0f, 0.0f));
@@ -321,7 +317,7 @@ GPUMesh Renderer::UploadMesh(const Mesh<Vertex>& mesh) {
     return gpu;
 }
 
-inline void Renderer::UploadTexture(const Image& image) {
+inline uint32_t Renderer::UploadTexture(const Image& image) {
     GPUTexture gpu;
 
     CD3DX12_HEAP_PROPERTIES defaultHeap(D3D12_HEAP_TYPE_DEFAULT);
@@ -357,15 +353,21 @@ inline void Renderer::UploadTexture(const Image& image) {
 
     Flush(g_CommandQueue, g_Fence, g_FenceValue, g_FenceEvent);
 
-    g_Device->CreateShaderResourceView(gpu.resource.Get(), nullptr, g_SRVDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+    assert(nextSRVIndex < kMaxTextures);
 
-    texture = gpu;
+    gpu.srvIndex = nextSRVIndex++;
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE slot(
+        g_SRVDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
+        gpu.srvIndex, g_SRVDescriptorSize);
+
+    textures.push_back(gpu);
+    g_Device->CreateShaderResourceView(gpu.resource.Get(), nullptr, slot);
+
+    return static_cast<uint32_t>(textures.size() - 1);
 }
 
-
-
 inline uint32_t Renderer::CreateMaterial(const wchar_t* shaderFile, const D3D12_INPUT_ELEMENT_DESC* layout, UINT layoutCount) {
-
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso = {};
 
     pso.InputLayout = { layout, layoutCount};
@@ -382,12 +384,11 @@ inline uint32_t Renderer::CreateMaterial(const wchar_t* shaderFile, const D3D12_
 
 inline void Renderer::DrawMeshes() {
     for (const RenderObject& obj : meshes) {
-        DrawMesh(obj, g_CubeAngle);
+        DrawMesh(obj);
     }
 }
 
-inline void Renderer::DrawMesh(const RenderObject& obj, float angle) {
-
+inline void Renderer::DrawMesh(const RenderObject& obj) {
     const Material& mat = materials[obj.material];
     g_CommandList->SetPipelineState(g_Wireframe ? mat.wireframe.Get() : mat.solid.Get());
 
@@ -402,12 +403,19 @@ inline void Renderer::DrawMesh(const RenderObject& obj, float angle) {
     scale.vec[1].y = obj.scale.y;
     scale.vec[2].z = obj.scale.z;
 
-    mat4 rotation = rotationx(angle) * rotationy(angle);
+    mat4 rotation = rotationx(obj.rotation.x) * rotationy(obj.rotation.y) * rotationz(obj.rotation.z);
 
     mat4 translation;
     translation.vec[3] = vec4(obj.position.x, obj.position.y, obj.position.z, 1.0f);
 
     mat4 model = translation * rotation * scale;
+
+    const GPUTexture& tex = textures[obj.texture];
+
+    CD3DX12_GPU_DESCRIPTOR_HANDLE srv(
+        g_SRVDescriptorHeap->GetGPUDescriptorHandleForHeapStart(),
+        tex.srvIndex, g_SRVDescriptorSize);
+    g_CommandList->SetGraphicsRootDescriptorTable(1, srv);
 
     g_CommandList->SetGraphicsRoot32BitConstants(0, 16, &model.vec[0].x, 0);
     g_CommandList->DrawIndexedInstanced(obj.mesh.indexCount, 1, 0, 0, 0);
@@ -559,7 +567,9 @@ inline void Renderer::SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstanc
     g_RTVDescriptorHeap = CreateDescriptorHeap(g_Device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, g_NumFrames);
     g_RTVDescriptorSize = g_Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
-    g_SRVDescriptorHeap = CreateDescriptorHeap(g_Device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE);
+    g_SRVDescriptorHeap = CreateDescriptorHeap(g_Device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, kMaxTextures, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE);
+
+
     g_SRVDescriptorSize = g_Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
     UpdateRenderTargetViews(g_Device, g_SwapChain, g_RTVDescriptorHeap);

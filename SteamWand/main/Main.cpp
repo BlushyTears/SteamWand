@@ -29,11 +29,19 @@ void MoveAround() {
 }
 
 void Update(Renderer& renderer) {
-    g_CubeAngle += GetDeltaTime();
+    renderer.meshes[0].rotation.y += 10.0f * GetDeltaTime();
+    renderer.meshes[1].rotation.x += 15.0f * GetDeltaTime();
+    renderer.meshes[2].rotation.z += 15.0f * GetDeltaTime();
     MoveAround();
 }
 
 void Start(Renderer& renderer) {
+
+    // Reminder: Working directory is bin/x64/Debug/SteamWandMain
+    uint32_t brick = renderer.UploadTexture(LoadImageFile("../../../../assets/wall-texture.png"));
+
+    // Reminder: Working directory is bin/x64/Debug/SteamWandMain
+    uint32_t checker = renderer.UploadTexture(LoadImageFile("../../../../assets/checker.png"));
 
     uint32_t colored = renderer.CreateMaterial<ColoredShapes::Vertex>(L"ColoredShapes.hlsl");
 
@@ -42,22 +50,21 @@ void Start(Renderer& renderer) {
     GPUMesh coloredCube = renderer.UploadMesh(ColoredShapes::MakeCube());
     renderer.meshes.push_back({ .mesh = coloredCube, .position = vec3(-2, 2, 2), .material = colored });
 
-    // old
     auto cubeData1 = Shapes::MakeCube();
     GPUMesh cubeMesh1 = renderer.UploadMesh(cubeData1);
-    renderer.meshes.push_back({ .mesh = cubeMesh1, .position = vec3(1, 2, 1), .scale = vec3(5, 1, 1), .material = textured });
+    renderer.meshes.push_back({ .mesh = cubeMesh1, .position = vec3(1, 2, 1), .scale = vec3(5, 1, 1), .material = textured, .texture = brick });
 
     auto cubeData2 = Shapes::MakeCube();
     GPUMesh cubeMesh2 = renderer.UploadMesh(cubeData2);
-    renderer.meshes.push_back({ .mesh = cubeMesh2, .position = vec3(4, 2, 2), .scale = vec3(1, 2, 1), .material = textured });
+    renderer.meshes.push_back({ .mesh = cubeMesh2, .position = vec3(4, 2, 2), .scale = vec3(1, 2, 1), .material = textured, .texture = checker});
 
     auto cubeData3 = ColoredShapes::MakeCube();
     GPUMesh cubeMesh3 = renderer.UploadMesh(cubeData3);
-    renderer.meshes.push_back({ .mesh = cubeMesh3, .position = vec3(-4, 2, 1), .material = colored });
+    renderer.meshes.push_back({ .mesh = cubeMesh3, .position = vec3(-4, 2, 1), .material = colored, .texture = checker });
 
     auto cubeData4 = ColoredShapes::MakeCube();
     GPUMesh cubeMesh4 = renderer.UploadMesh(cubeData4);
-    renderer.meshes.push_back({ .mesh = cubeMesh4, .position = vec3(-7, 2, 2), .material = colored });
+    renderer.meshes.push_back({ .mesh = cubeMesh4, .position = vec3(-7, 2, 2), .material = colored, .texture = checker });
 
     auto prismTriangleData = Shapes::MakeTriangularPrism();
     GPUMesh prismMesh = renderer.UploadMesh(prismTriangleData);
@@ -75,6 +82,5 @@ void Start(Renderer& renderer) {
     GPUMesh planeMesh = renderer.UploadMesh(planeData);
     renderer.meshes.push_back({ .mesh = planeMesh, .position = vec3(-4, 0, 2), .material = colored });
 
-    // Reminder: Working directory is bin/x64/Debug/SteamWandMain
-    renderer.UploadTexture(LoadImageFile("../../../../assets/checker.png"));
+
 }
