@@ -8,7 +8,7 @@
 
 ## AI Note:
 
-#### The philosophy of SteamWand is LLM-based assistance without reliance/vibe-coding. In other words; AI is used to speed up the development without AI-induced tech debt.
+#### The philosophy of SteamWand is LLM-based assistance without reliance/vibe-coding. In other words; AI is used to speed up the more boring/boilerplate-ish parts of the development without inducing AI-related tech debt.
 
 ---
 
