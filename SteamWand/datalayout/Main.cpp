@@ -147,36 +147,71 @@ void printUsage() {
 
 }
 
-int main(int argc, char* argv[]) {
-    if (argc > 2) {
-        printUsage();
-        return 1;
-    }
+//#include <Windows.h>
+//#include <wrl.h>
+//#include <d3d12.h>
+//#include <dxgi1_6.h>
+//#include <cassert>
+//#include <cstdint>
+//#include <vector>
+//
+//#pragma comment(lib, "dxgi.lib")
+//
+//#ifndef ReleaseCom
+//#define ReleaseCom(x) { if(x){ x->Release(); x = 0; } }
+//#endif
+//
+//inline void ThrowIfFailed(HRESULT hr) {
+//    if (FAILED(hr)) {
+//        throw std::exception();
+//    }
+//}
+//
+//inline void LogAdapters()
+//{
+//    Microsoft::WRL::ComPtr<IDXGIFactory4> mdxgiFactory;
+//
+//        UINT createFactoryFlags = 0;
+//    #if defined(_DEBUG)
+//        createFactoryFlags = DXGI_CREATE_FACTORY_DEBUG;
+//    #endif
+//
+//    ThrowIfFailed(CreateDXGIFactory2(createFactoryFlags, IID_PPV_ARGS(&mdxgiFactory)));
+//
+//    UINT i = 0;
+//
+//    IDXGIAdapter* adapter = nullptr;
+//    std::vector< IDXGIAdapter*> adapterList;
+//
+//    while (mdxgiFactory->EnumAdapters(i, &adapter) != DXGI_ERROR_NOT_FOUND)
+//    {
+//        DXGI_ADAPTER_DESC desc;
+//        adapter->GetDesc(&desc);
+//
+//        std::wstring text = L"Adapter: ";
+//        text += desc.Description;
+//        text += L"\n";
+//
+//        OutputDebugString(text.c_str());
+//
+//        adapterList.push_back(adapter);
+//
+//        ++i;
+//    }
+//
+//    for (size_t i = 0; i < adapterList.size(); ++i) {
+//        DXGI_ADAPTER_DESC desc;
+//
+//        adapterList[i]->GetDesc(&desc);
+//
+//        std::wcout << L"Adapter: " << desc.VendorId << std::endl;
+//
+//        ReleaseCom(adapterList[i]);
+//    }
+//}
 
-    const std::string_view mode = argc == 2 ? argv[1] : "--examples";
-    try {
-        if (mode == "--examples") {
-            runExamples();
-        }
-        else if (mode == "--benchmarks") {
-            runBenchmarks();
-        }
-        else if (mode == "--snake") {
-            SnakeGame snake;
-            snake.run();
-        }
-        else if (mode == "--help" || mode == "-h") {
-            printUsage();
-        }
-        else {
-            std::cerr << "Unknown option: " << mode << '\n';
-            printUsage();
-            return 1;
-        }
-    }
-    catch (const std::exception& error) {
-        std::cerr << "Data-layout runner failed: " << error.what() << '\n';
-        return 1;
-    }
-    return 0;
+int main(int argc, char* argv[]) {
+
+    //run_benchmarks();
+    multipleWorldsExample();
 }

@@ -44,7 +44,6 @@ void Start(Renderer& renderer) {
     uint32_t checker = renderer.UploadTexture(LoadImageFile("../../../../assets/checker.png"));
 
     uint32_t colored = renderer.CreateMaterial<ColoredShapes::Vertex>(L"ColoredShapes.hlsl");
-
     uint32_t textured = renderer.CreateMaterial<Shapes::Vertex>(L"Shapes.hlsl");
 
     GPUMesh coloredCube = renderer.UploadMesh(ColoredShapes::MakeCube());
@@ -81,6 +80,6 @@ void Start(Renderer& renderer) {
     auto planeData = ColoredShapes::MakePlane();
     GPUMesh planeMesh = renderer.UploadMesh(planeData);
     renderer.meshes.push_back({ .mesh = planeMesh, .position = vec3(-4, 0, 2), .material = colored });
-
-
 }
+
+

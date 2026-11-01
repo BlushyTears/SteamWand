@@ -214,7 +214,6 @@ inline void Renderer::Render() {
         };
 
         g_CommandList->SetDescriptorHeaps(_countof(heaps), heaps);
-        //g_CommandList->SetGraphicsRootDescriptorTable(1, g_SRVDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
         float aspect = float(g_ClientWidth) / float(g_ClientHeight);
         mat4 look = lookat(g_CameraPosition, g_CameraPosition + GetCameraForward(), vec3(0.0f, 1.0f, 0.0f));

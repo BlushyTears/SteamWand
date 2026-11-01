@@ -1,5 +1,6 @@
-// Todo:
-// - Worlds embedded in other stored types bypass recursive cleanup and cycle checks.
+// Known limits:
+// - A World created inside a stored value after that value was constructed (for example
+//   pushed into a std::vector member later) is not tracked as a child World.
 //
 // Future ideas:
 // - Save/load story. Probably user code, but the engine could expose a stable-
@@ -15,8 +16,8 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
-#include <exception>
 #include <memory>
+#include <mutex>
 #include <new>
 #include <stdexcept>
 #include <type_traits>
@@ -34,32 +35,90 @@ struct View;
 namespace dcs_detail {
     inline std::atomic<uint32_t> next_type_id{ 1 };
 
+    inline bool has_bit(const uint64_t* bits, uint32_t index) noexcept {
+        return (bits[index / 64] >> (index % 64)) & 1;
+    }
+
     struct ISlab {
         virtual ~ISlab() = default;
         virtual void clear() = 0;
-        virtual void remove(uint32_t slot, uint32_t generation) = 0;
+        virtual void apply_queued() = 0;
     };
 
-    // Everything a World owns. Shared so WorldRefs can follow it through moves.
-    struct WorldState {
-        struct Removal {
-            uint32_t type_id;
-            uint32_t slot;
-            uint32_t generation;
+    struct WorldState;
+
+    // Lets Atoms and WorldRefs find their World by index and generation without owning it.
+    struct WorldTable {
+        struct Entry {
+            WorldState* state = nullptr;
+            uint32_t generation = 0;
         };
 
-        static inline std::atomic<uint64_t> next_id{ 1 };
+        std::mutex mutex;
+        std::vector<Entry> entries;
+        std::vector<uint32_t> free_indices;
+    };
+    inline WorldTable world_table;
 
+    // The World whose slab is constructing a value on this thread. Worlds created meanwhile are its children.
+    inline thread_local WorldState* constructing_parent = nullptr;
+
+    struct ParentScope {
+        WorldState* outer;
+
+        explicit ParentScope(WorldState* state) : outer(std::exchange(constructing_parent, state)) {
+        }
+
+        ~ParentScope() {
+            constructing_parent = outer;
+        }
+    };
+
+    // Everything a World owns. Stays at one address while Worlds move, so views and children can point at it.
+    struct WorldState {
         World* owner;
-        const uint64_t id = next_id++;
+        uint32_t index = 0;
+        uint32_t generation = 0;
         size_t active_views = 0;
         bool mutation_in_progress = false;
         std::vector<std::unique_ptr<ISlab>> slabs; // Indexed by TypeInfo<T>::id().
-        std::vector<Removal> pending_removals;     // Applied by World::cleanup().
+        std::vector<World*> children;              // Every tracked World living inside this World's values.
 
         explicit WorldState(World* world) : owner(world) {
+            std::lock_guard<std::mutex> lock(world_table.mutex);
+            if (world_table.free_indices.empty()) {
+                index = static_cast<uint32_t>(world_table.entries.size());
+                world_table.entries.emplace_back();
+            }
+            else {
+                index = world_table.free_indices.back();
+                world_table.free_indices.pop_back();
+            }
+            world_table.entries[index].state = this;
+            generation = world_table.entries[index].generation;
+        }
+
+        ~WorldState() {
+            // Destroy the values first, while children can still unregister themselves.
+            slabs.clear();
+
+            std::lock_guard<std::mutex> lock(world_table.mutex);
+            WorldTable::Entry& entry = world_table.entries[index];
+            entry.state = nullptr;
+            // UINT32_MAX retires the index instead of reviving an earlier WorldRef.
+            if (++entry.generation != UINT32_MAX) {
+                world_table.free_indices.push_back(index);
+            }
         }
     };
+
+    inline World* find_world(uint32_t index, uint32_t generation) {
+        std::lock_guard<std::mutex> lock(world_table.mutex);
+        if (index >= world_table.entries.size() || world_table.entries[index].generation != generation) {
+            return nullptr;
+        }
+        return world_table.entries[index].state->owner;
+    }
 }
 
 template<typename T>
@@ -74,14 +133,11 @@ struct TypeInfo {
 
 struct WorldRef {
 private:
-    std::weak_ptr<dcs_detail::WorldState> world_state;
-    uint64_t id = 0;
+    uint32_t index = UINT32_MAX;
+    uint32_t generation = 0;
 
-    explicit WorldRef(const std::shared_ptr<dcs_detail::WorldState>& state)
-        : world_state(state) {
-        if (state) {
-            id = state->id;
-        }
+    explicit WorldRef(const dcs_detail::WorldState& state)
+        : index(state.index), generation(state.generation) {
     }
     friend struct World;
     template<typename, bool>
@@ -90,22 +146,15 @@ private:
 public:
     WorldRef() = default;
 
-    World* get() const noexcept {
-        std::shared_ptr<dcs_detail::WorldState> state = world_state.lock();
-        if (!state) {
-            return nullptr;
-        }
-
-        return state->owner;
+    World* get() const {
+        return dcs_detail::find_world(index, generation);
     }
 
-    explicit operator bool() const noexcept {
+    explicit operator bool() const {
         return get() != nullptr;
     }
 
-    bool operator==(const WorldRef& other) const noexcept {
-        return id == other.id;
-    }
+    bool operator==(const WorldRef&) const noexcept = default;
 };
 
 template<typename T>
@@ -117,7 +166,7 @@ private:
     uint32_t generation = 0;
 
     Atom(WorldRef world, uint32_t slot, uint32_t generation)
-        : world_ref(std::move(world)), slot(slot), generation(generation) {
+        : world_ref(world), slot(slot), generation(generation) {
     }
     friend struct World;
     template<typename, bool>
@@ -126,7 +175,7 @@ private:
 public:
     Atom() = default;
 
-    World* world() const noexcept {
+    World* world() const {
         return world_ref.get();
     }
 
@@ -141,14 +190,7 @@ struct RawSlots {
     uint32_t extent = 0;
 
     bool is_live(uint32_t slot) const noexcept {
-        if (slot >= extent) {
-            return false;
-        }
-
-        uint32_t word = slot / 64;
-        uint32_t bit_index = slot % 64;
-        uint64_t bit = 1ULL << bit_index;
-        return (presence[word] & bit) != 0;
+        return slot < extent && dcs_detail::has_bit(presence, slot);
     }
 };
 
@@ -164,13 +206,20 @@ private:
         }
     };
 
+    struct Removal {
+        uint32_t slot;
+        uint32_t generation;
+    };
+
     uint32_t cap;
-    uint32_t slot_extent = 0;          // One past the highest slot used since the last clear().
+    uint32_t slot_extent = 0;             // One past the highest slot used since the last clear().
     uint32_t live_count = 0;
     std::unique_ptr<T, Deallocate> data;
-    std::vector<uint32_t> generations; // Bumped on every removal, so older Atoms stop matching.
-    std::vector<uint32_t> free_slots;  // Removed slots that can be reused.
-    std::vector<uint64_t> presence;    // One bit per slot, set while the slot holds a value.
+    std::vector<uint32_t> generations;    // Bumped on every removal, so older Atoms stop matching.
+    std::vector<uint32_t> free_slots;     // Removed slots that can be reused.
+    std::vector<uint64_t> presence;       // One bit per slot, set while the slot holds a visible value.
+    std::vector<uint32_t> queued_adds;    // Constructed slots that become visible in apply_queued().
+    std::vector<Removal> queued_removals; // Removed in apply_queued().
     friend struct World;
     template<typename, bool>
     friend struct View;
@@ -182,105 +231,101 @@ private:
     }
 
     bool is_live(uint32_t slot) const noexcept {
-        if (slot >= slot_extent) {
-            return false;
-        }
-
-        uint32_t word = slot / 64;
-        uint32_t bit_index = slot % 64;
-        uint64_t bit = 1ULL << bit_index;
-        return (presence[word] & bit) != 0;
+        return slot < slot_extent && dcs_detail::has_bit(presence.data(), slot);
     }
 
     bool matches(uint32_t slot, uint32_t generation) const noexcept {
         return is_live(slot) && generations[slot] == generation;
     }
 
+    // Constructs a value in a free slot. It stays invisible until show().
     template<typename... Args>
-    uint32_t emplace(Args&&... args) {
-        uint32_t slot = slot_extent;
+    uint32_t construct(Args&&... args) {
         bool reuse_slot = !free_slots.empty();
-
-        if (reuse_slot) {
-            slot = free_slots.back();
-        }
-        else {
-            // After clear() the extent restarts at 0, so step over retired slots.
-            while (slot < cap && generations[slot] == UINT32_MAX) {
-                ++slot;
-            }
+        uint32_t slot = reuse_slot ? free_slots.back() : slot_extent;
+        // After clear() the extent restarts at 0, so step over retired slots.
+        while (!reuse_slot && slot < cap && generations[slot] == UINT32_MAX) {
+            ++slot;
         }
         if (slot >= cap) {
             throw std::length_error("Slab capacity exceeded");
         }
 
-        T* values = data.get();
         // The slot is raw memory. Placement new constructs a T in that slot;
         // assignment would require a T to already exist there.
-        ::new (&values[slot]) T(std::forward<Args>(args)...);
+        ::new (data.get() + slot) T(std::forward<Args>(args)...);
 
+        // Only claim the slot once construction succeeded.
         if (reuse_slot) {
             free_slots.pop_back();
         }
         else {
             slot_extent = slot + 1;
         }
-
-        uint32_t word = slot / 64;
-        uint64_t bit = 1ULL << (slot % 64);
-        presence[word] |= bit;
-        ++live_count;
         return slot;
     }
 
-    void remove(uint32_t slot, uint32_t generation) override {
-        if (!matches(slot, generation)) {
-            return;
-        }
+    void show(uint32_t slot) noexcept {
+        presence[slot / 64] |= 1ULL << (slot % 64);
+        ++live_count;
+    }
+
+    // Ends the lifetime of a live or queued value and frees its slot.
+    void destroy(uint32_t slot) {
         if constexpr (std::is_same_v<T, World>) {
             data.get()[slot].check_tree_not_busy();
         }
-        uint32_t word = slot / 64;
-        uint64_t bit = 1ULL << (slot % 64);
-        presence[word] &= ~bit;
-        --live_count;
+        if (is_live(slot)) {
+            presence[slot / 64] &= ~(1ULL << (slot % 64));
+            --live_count;
+        }
         std::destroy_at(data.get() + slot);
         // UINT32_MAX retires the slot instead of reviving an earlier handle.
-        ++generations[slot];
-        if (generations[slot] != UINT32_MAX) {
+        if (++generations[slot] != UINT32_MAX) {
             free_slots.push_back(slot);
         }
+    }
+
+    void apply_queued() override {
+        for (uint32_t slot : queued_adds) {
+            show(slot);
+        }
+        queued_adds.clear();
+
+        for (const Removal& removal : queued_removals) {
+            // Skips values that were freed twice or already removed by clear().
+            if (matches(removal.slot, removal.generation)) {
+                destroy(removal.slot);
+            }
+        }
+        queued_removals.clear();
     }
 
     void clear() override {
         for (uint32_t slot = 0; slot < slot_extent; ++slot) {
             if (is_live(slot)) {
-                remove(slot, generations[slot]);
+                destroy(slot);
             }
         }
+        for (uint32_t slot : queued_adds) {
+            destroy(slot);
+        }
+        queued_adds.clear();
+        queued_removals.clear();
         free_slots.clear();
         slot_extent = 0;
     }
 
 public:
     explicit Slab(uint32_t capacity)
-        : cap(capacity), data(allocate(cap)), generations(cap),
-        presence((size_t{ cap } + 63) / 64) {
-        free_slots.reserve(cap);
+        : cap(capacity), data(allocate(capacity)), generations(capacity),
+        presence((size_t{ capacity } + 63) / 64) {
+        free_slots.reserve(capacity);
     }
 
     ~Slab() override {
-        for (uint32_t slot = 0; slot < slot_extent; ++slot) {
-            if (is_live(slot)) {
-                std::destroy_at(data.get() + slot);
-            }
-        }
+        clear();
     }
-
-    Slab(const Slab&) = delete;
-    Slab& operator=(const Slab&) = delete;
-    Slab(Slab&&) = delete;
-    Slab& operator=(Slab&&) = delete;
 
     uint32_t size() const noexcept {
         return live_count;
@@ -296,42 +341,24 @@ struct View {
 private:
     using Value = std::remove_const_t<T>;
     using SlabPointer = std::conditional_t<std::is_const_v<T>, const Slab<Value>*, Slab<Value>*>;
-    std::shared_ptr<dcs_detail::WorldState> world_state;
-    SlabPointer slab = nullptr;
+    dcs_detail::WorldState* state;
+    SlabPointer slab;
     friend struct World;
 
-    View(std::shared_ptr<dcs_detail::WorldState> state, SlabPointer slab)
-        : world_state(std::move(state)), slab(slab) {
-        if (world_state) {
-            if (world_state->mutation_in_progress) {
-                throw std::logic_error("World is being mutated");
-            }
-            ++world_state->active_views;
+    View(dcs_detail::WorldState* world_state, SlabPointer slab)
+        : state(world_state), slab(slab) {
+        if (state->mutation_in_progress) {
+            throw std::logic_error("World is being mutated");
         }
+        ++state->active_views;
     }
 
 public:
-    View(const View& other) : world_state(other.world_state), slab(other.slab) {
-        if (world_state) {
-            ++world_state->active_views;
-        }
-    }
-
-    View(View&& other) noexcept : world_state(std::move(other.world_state)), slab(other.slab) {
-        other.slab = nullptr;
-    }
-
-    // Copy-and-swap: `other` releases our old contents when it is destroyed.
-    View& operator=(View other) noexcept {
-        world_state.swap(other.world_state);
-        std::swap(slab, other.slab);
-        return *this;
-    }
+    View(const View&) = delete;
+    View& operator=(const View&) = delete;
 
     ~View() {
-        if (world_state) {
-            --world_state->active_views;
-        }
+        --state->active_views;
     }
 
     struct Entry {
@@ -379,9 +406,7 @@ public:
             // Select the first live slot, then remove its bit from the mask.
             uint32_t bit_index = static_cast<uint32_t>(std::countr_zero(remaining_bits));
             slot = word_index * 64 + bit_index;
-
-            uint64_t selected_bit = 1ULL << bit_index;
-            remaining_bits &= ~selected_bit;
+            remaining_bits &= remaining_bits - 1;
         }
 
     public:
@@ -393,10 +418,8 @@ public:
         decltype(auto) operator*() const {
             T& value = view->slab->data.get()[slot];
             if constexpr (WithAtoms) {
-                WorldRef world(view->world_state);
-                uint32_t generation = view->slab->generations[slot];
-                Atom<Value> atom(std::move(world), slot, generation);
-                return Entry{ std::move(atom), value };
+                Atom<Value> atom(WorldRef(*view->state), slot, view->slab->generations[slot]);
+                return Entry{ atom, value };
             }
             else {
                 return value;
@@ -421,17 +444,17 @@ public:
 
 struct World {
 private:
-    uint32_t cap;
-    std::shared_ptr<dcs_detail::WorldState> world_state; // Null after a move until something is added.
-    std::weak_ptr<dcs_detail::WorldState> parent_state;  // Set while this World is stored in another World.
+    uint32_t cap;                                        // Slot count for types without set_capacity().
+    std::unique_ptr<dcs_detail::WorldState> world_state; // Never null. A moved-from World gets a fresh, empty one.
+    dcs_detail::WorldState* parent = nullptr;            // The World this one lives inside, if any.
     template<typename>
     friend struct Slab;
 
     struct MutationGuard {
         dcs_detail::WorldState& state;
 
-        explicit MutationGuard(dcs_detail::WorldState& storage) : state(storage) {
-            if (state.active_views || state.mutation_in_progress) {
+        explicit MutationGuard(dcs_detail::WorldState& storage, bool allow_views = false) : state(storage) {
+            if (state.mutation_in_progress || (state.active_views && !allow_views)) {
                 throw std::logic_error("World has an active view or mutation");
             }
             state.mutation_in_progress = true;
@@ -440,32 +463,23 @@ private:
         ~MutationGuard() {
             state.mutation_in_progress = false;
         }
-
-        MutationGuard(const MutationGuard&) = delete;
-        MutationGuard& operator=(const MutationGuard&) = delete;
     };
 
-    dcs_detail::WorldState& ensure_state() {
-        if (!world_state) {
-            world_state = std::make_shared<dcs_detail::WorldState>(this);
+    // A World built while a slab constructs a value lives inside that value's World.
+    void join_parent() {
+        parent = dcs_detail::constructing_parent;
+        if (parent) {
+            parent->children.push_back(this);
         }
-        return *world_state;
     }
 
-    // Throws if this World, or any World stored inside it, has an active view or mutation.
+    // Throws if this World, or any World inside it, has an active view or mutation.
     void check_tree_not_busy() const {
-        if (!world_state) {
-            return;
-        }
         if (world_state->active_views || world_state->mutation_in_progress) {
             throw std::logic_error("World has an active view or mutation");
         }
-
-        RawSlots<const World> children = raw_slots<World>();
-        for (uint32_t slot = 0; slot < children.extent; ++slot) {
-            if (children.is_live(slot)) {
-                children.data[slot].check_tree_not_busy();
-            }
+        for (const World* child : world_state->children) {
+            child->check_tree_not_busy();
         }
     }
 
@@ -474,15 +488,11 @@ private:
         if (&child == this) {
             throw std::logic_error("A World cannot own itself");
         }
-
-        std::shared_ptr<dcs_detail::WorldState> ancestor = parent_state.lock();
-        while (ancestor) {
-            if (ancestor == child.world_state) {
+        for (const dcs_detail::WorldState* ancestor = parent; ancestor; ancestor = ancestor->owner->parent) {
+            if (ancestor == child.world_state.get()) {
                 throw std::logic_error("World ownership cycle");
             }
-            ancestor = ancestor->owner->parent_state.lock();
         }
-
         child.check_tree_not_busy();
     }
 
@@ -495,12 +505,8 @@ private:
     }
 
     template<typename T>
-    Slab<T>* lookup_slab() const {
+    Slab<T>* find_slab() const {
         static_assert(std::is_same_v<T, std::remove_cvref_t<T>>, "Storage type must be unqualified");
-        if (!world_state) {
-            return nullptr;
-        }
-
         uint32_t type_id = TypeInfo<T>::id();
         if (type_id >= world_state->slabs.size()) {
             return nullptr;
@@ -510,78 +516,94 @@ private:
     }
 
     template<typename T>
-    T* lookup_value(const Atom<T>& atom) const {
-        if (!world_state) {
-            return nullptr;
+    Slab<T>& ensure_slab(uint32_t capacity) {
+        std::vector<std::unique_ptr<dcs_detail::ISlab>>& slabs = world_state->slabs;
+        uint32_t type_id = TypeInfo<T>::id();
+
+        if (type_id >= slabs.size()) {
+            slabs.resize(type_id + 1);
         }
-        if (atom.world_ref.id != world_state->id) {
-            return nullptr;
+        if (!slabs[type_id]) {
+            slabs[type_id] = std::make_unique<Slab<T>>(capacity);
         }
 
-        Slab<T>* slab = lookup_slab<T>();
-        if (!slab) {
-            return nullptr;
-        }
-        if (!slab->matches(atom.slot, atom.generation)) {
-            return nullptr;
-        }
-
-        return &slab->data.get()[atom.slot];
+        return *static_cast<Slab<T>*>(slabs[type_id].get());
     }
 
     template<typename T>
-    Slab<T>& ensure_slab() {
-        dcs_detail::WorldState& state = ensure_state();
-        uint32_t type_id = TypeInfo<T>::id();
-
-        if (type_id >= state.slabs.size()) {
-            state.slabs.resize(type_id + 1);
+    T* lookup_value(const Atom<T>& atom) const {
+        if (atom.world_ref != ref()) {
+            return nullptr;
         }
 
-        if (!state.slabs[type_id]) {
-            state.slabs[type_id] = std::make_unique<Slab<T>>(cap);
+        Slab<T>* slab = find_slab<T>();
+        if (!slab || !slab->matches(atom.slot, atom.generation)) {
+            return nullptr;
         }
 
-        return *static_cast<Slab<T>*>(state.slabs[type_id].get());
+        return slab->data.get() + atom.slot;
     }
 
-    void drain_removals() {
-        for (const dcs_detail::WorldState::Removal& removal : world_state->pending_removals) {
-            // queue_free only queues live values, so their slab exists.
-            dcs_detail::ISlab& slab = *world_state->slabs[removal.type_id];
-            slab.remove(removal.slot, removal.generation);
+    // Constructs a T in a free slot. Queued values are allowed during iteration
+    // and become visible at the next cleanup().
+    template<typename T, typename... Args>
+    Atom<T> create(bool queued, Args&&... args) {
+        if constexpr (std::is_same_v<T, World>) {
+            // Calls check_world_arg once for each argument.
+            (check_world_arg(args), ...);
         }
-        world_state->pending_removals.clear();
+
+        MutationGuard guard(*world_state, queued);
+        Slab<T>& slab = ensure_slab<T>(cap);
+        uint32_t slot;
+        {
+            dcs_detail::ParentScope scope(world_state.get());
+            slot = slab.construct(std::forward<Args>(args)...);
+        }
+
+        if (queued) {
+            slab.queued_adds.push_back(slot);
+        }
+        else {
+            slab.show(slot);
+        }
+
+        return Atom<T>(ref(), slot, slab.generations[slot]);
+    }
+
+    void apply_queued() {
+        for (std::unique_ptr<dcs_detail::ISlab>& slab : world_state->slabs) {
+            if (slab) {
+                slab->apply_queued();
+            }
+        }
     }
 
 public:
     explicit World(uint32_t capacity = 1024)
-        : cap(capacity), world_state(std::make_shared<dcs_detail::WorldState>(this)) {
+        : cap(capacity), world_state(std::make_unique<dcs_detail::WorldState>(this)) {
         if (capacity == 0) {
             throw std::invalid_argument("World capacity must be positive");
         }
+        join_parent();
     }
 
+    // Destroying a World that is being iterated or mutated terminates the program.
     ~World() {
-        try {
-            check_tree_not_busy();
+        discard();
+        if (parent) {
+            std::erase(parent->children, this);
         }
-        catch (...) {
-            std::terminate();
-        }
-        // Reset before the values die, so their destructors see an empty World, not a half-destroyed one.
-        world_state.reset();
     }
 
     World(const World&) = delete;
     World& operator=(const World&) = delete;
 
-    World(World&& other) : cap(other.cap) {
-        other.check_tree_not_busy();
-        world_state = std::move(other.world_state);
-        if (world_state) {
-            world_state->owner = this;
-        }
+    World(World&& other)
+        : cap(other.cap),
+        world_state(std::exchange(other.world_state, std::make_unique<dcs_detail::WorldState>(&other))) {
+        world_state->owner = this;
+        join_parent();
     }
 
     World& operator=(World&& other) {
@@ -593,50 +615,38 @@ public:
 
         // `other` may live inside our old state, so take what we need before replacing it.
         cap = other.cap;
-        std::shared_ptr<dcs_detail::WorldState> incoming_state = std::move(other.world_state);
-        if (incoming_state) {
-            incoming_state->owner = this;
-        }
-
-        world_state = std::move(incoming_state);
+        std::unique_ptr<dcs_detail::WorldState> incoming =
+            std::exchange(other.world_state, std::make_unique<dcs_detail::WorldState>(&other));
+        incoming->owner = this;
+        world_state = std::move(incoming);
         return *this;
     }
 
     WorldRef ref() const noexcept {
-        return WorldRef(world_state);
+        return WorldRef(*world_state);
     }
 
     uint32_t capacity() const noexcept {
         return cap;
     }
 
+    // Gives T its own slot count instead of the World's. Call before the first value of T.
     template<typename T>
-    Slab<T>* find_slab() {
-        return lookup_slab<T>();
-    }
+    void set_capacity(uint32_t capacity) {
+        if (capacity == 0) {
+            throw std::invalid_argument("Capacity must be positive");
+        }
+        if (find_slab<T>()) {
+            throw std::logic_error("set_capacity must come before the first value of its type");
+        }
 
-    template<typename T>
-    const Slab<T>* find_slab() const {
-        return lookup_slab<T>();
+        MutationGuard guard(*world_state, true);
+        ensure_slab<T>(capacity);
     }
 
     template<typename T, typename... Args>
     Atom<T> emplace(Args&&... args) {
-        if constexpr (std::is_same_v<T, World>) {
-            // Calls check_world_arg once for each argument.
-            (check_world_arg(args), ...);
-        }
-
-        dcs_detail::WorldState& state = ensure_state();
-        MutationGuard guard(state);
-        Slab<T>& slab = ensure_slab<T>();
-        uint32_t slot = slab.emplace(std::forward<Args>(args)...);
-
-        if constexpr (std::is_same_v<T, World>) {
-            slab.data.get()[slot].parent_state = world_state;
-        }
-
-        return Atom<T>(ref(), slot, slab.generations[slot]);
+        return create<T>(false, std::forward<Args>(args)...);
     }
 
     template<typename T>
@@ -649,14 +659,23 @@ public:
         return emplace<std::remove_cvref_t<T>>(value);
     }
 
+    // Like add(), but safe while iterating. The value appears at the next cleanup().
+    template<typename T>
+    Atom<std::remove_cvref_t<T>> queue_add(T&& value) {
+        return create<std::remove_cvref_t<T>>(true, std::forward<T>(value));
+    }
+
+    template<typename T>
+    Atom<std::remove_cvref_t<T>> queue_add(const T& value) {
+        return create<std::remove_cvref_t<T>>(true, value);
+    }
+
     World& attach_world(World& child) {
         return attach_world(std::move(child));
     }
 
     World& attach_world(World&& child) {
-        Atom<World> atom = add<World>(std::move(child));
-        World* attached_world = get(atom);
-        return *attached_world;
+        return *get(add<World>(std::move(child)));
     }
 
     template<typename T>
@@ -677,108 +696,74 @@ public:
     template<typename T>
     size_t size() const {
         const Slab<T>* slab = find_slab<T>();
-        if (!slab) {
-            return 0;
-        }
-
-        return slab->size();
+        return slab ? slab->size() : 0;
     }
 
     template<typename T>
     bool queue_free(const Atom<T>& atom) {
-        if (world_state && world_state->mutation_in_progress) {
+        if (world_state->mutation_in_progress) {
             throw std::logic_error("World is being mutated");
         }
-
         if (!is_live(atom)) {
             return false;
         }
 
-        dcs_detail::WorldState::Removal removal;
-        removal.type_id = TypeInfo<T>::id();
-        removal.slot = atom.slot;
-        removal.generation = atom.generation;
-        world_state->pending_removals.push_back(removal);
+        find_slab<T>()->queued_removals.push_back({ atom.slot, atom.generation });
         return true;
     }
 
+    // Applies this World's queued adds and removals.
     void cleanup() {
-        if (!world_state) {
-            return;
-        }
-
         MutationGuard guard(*world_state);
-        drain_removals();
+        apply_queued();
     }
 
+    // Also cleans up every World inside this one, recursively.
     void cleanup_tree() {
-        check_tree_not_busy();
-        if (!world_state) {
-            return;
-        }
-
-        MutationGuard guard(*world_state);
-        drain_removals();
-
-        RawSlots<World> children = raw_slots<World>();
-        for (uint32_t slot = 0; slot < children.extent; ++slot) {
-            if (children.is_live(slot)) {
-                children.data[slot].cleanup_tree();
-            }
+        cleanup();
+        std::vector<World*>& children = world_state->children;
+        for (size_t i = 0; i < children.size(); ++i) {
+            children[i]->cleanup_tree();
         }
     }
 
+    // Empties one slab, including its queued adds and removals.
     template<typename T>
     void clear() {
-        if (!world_state) {
-            return;
-        }
-        if constexpr (std::is_same_v<T, World>) {
-            // Fail before anything is removed if a child World is in use.
-            check_tree_not_busy();
-        }
-
         MutationGuard guard(*world_state);
-        Slab<T>* slab = find_slab<T>();
-        if (slab) {
+        if (Slab<T>* slab = find_slab<T>()) {
             slab->clear();
         }
-        // Queued removals of T still name the old generations, so cleanup() skips them.
     }
 
+    // Empties every slab. Allocations are kept.
     void discard() {
-        check_tree_not_busy();
-        if (!world_state) {
-            return;
-        }
-
         MutationGuard guard(*world_state);
-        for (auto& slab : world_state->slabs) {
+        for (std::unique_ptr<dcs_detail::ISlab>& slab : world_state->slabs) {
             if (slab) {
                 slab->clear();
             }
         }
-        world_state->pending_removals.clear();
     }
 
     template<typename T>
     View<T> iter() {
-        return View<T>(world_state, find_slab<T>());
+        return View<T>(world_state.get(), find_slab<T>());
     }
 
     template<typename T>
     View<const T> iter() const {
-        return View<const T>(world_state, find_slab<T>());
+        return View<const T>(world_state.get(), find_slab<T>());
     }
 
     template<typename T>
     View<T, true> iter_atoms() {
-        return View<T, true>(world_state, find_slab<T>());
+        return View<T, true>(world_state.get(), find_slab<T>());
     }
 
     template<typename T>
     View<const T, true> iter_atoms() const {
-        return View<const T, true>(world_state, find_slab<T>());
+        return View<const T, true>(world_state.get(), find_slab<T>());
     }
 
     // Borrowed raw slots include holes. Check presence before accessing a value.
@@ -788,12 +773,7 @@ public:
         if (!slab) {
             return {};
         }
-
-        RawSlots<const T> slots;
-        slots.data = slab->data.get();
-        slots.presence = slab->presence.data();
-        slots.extent = slab->slot_extent;
-        return slots;
+        return { slab->data.get(), slab->presence.data(), slab->slot_extent };
     }
 
     template<typename T>
@@ -802,21 +782,14 @@ public:
         if (!slab) {
             return {};
         }
-
-        RawSlots<T> slots;
-        slots.data = slab->data.get();
-        slots.presence = slab->presence.data();
-        slots.extent = slab->slot_extent;
-        return slots;
+        return { slab->data.get(), slab->presence.data(), slab->slot_extent };
     }
 };
 
 template<typename T>
 bool Atom<T>::is_valid() const {
     World* owner = world();
-    if (!owner) {
-        return false;
-    }
-
-    return owner->is_live(*this);
+    return owner && owner->is_live(*this);
 }
+
+static_assert(sizeof(Atom<int>) == 16 && std::is_trivially_copyable_v<Atom<int>>, "Atoms should stay small and cheap to copy");
