@@ -16,6 +16,7 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -23,6 +24,14 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+#if defined(_WIN32)
+// Declared here so this header doesn't need <windows.h> and its min/max macros.
+extern "C" __declspec(dllimport) void* __stdcall VirtualAlloc(void* address, size_t size, unsigned long type, unsigned long protect);
+extern "C" __declspec(dllimport) int __stdcall VirtualFree(void* address, size_t size, unsigned long type);
+#else
+#include <sys/mman.h> // Only so the data layout can be tested off Windows.
+#endif
 
 struct World;
 template<typename T>
@@ -38,6 +47,101 @@ namespace dcs_detail {
     inline bool has_bit(const uint64_t* bits, uint32_t index) noexcept {
         return (bits[index / 64] >> (index % 64)) & 1;
     }
+
+    // Growable memory is committed in steps of this size. A multiple of the page size on every target.
+    constexpr size_t commit_step = 64 * 1024;
+
+    inline size_t round_to_step(size_t bytes) noexcept {
+        return (bytes + commit_step - 1) / commit_step * commit_step;
+    }
+
+#if defined(_WIN32)
+    inline void* reserve_pages(size_t bytes) {
+        return VirtualAlloc(nullptr, bytes, 0x2000 /* MEM_RESERVE */, 0x01 /* PAGE_NOACCESS */);
+    }
+
+    inline bool commit_pages(void* at, size_t bytes) {
+        return VirtualAlloc(at, bytes, 0x1000 /* MEM_COMMIT */, 0x04 /* PAGE_READWRITE */) != nullptr;
+    }
+
+    inline void release_pages(void* at, size_t) {
+        VirtualFree(at, 0, 0x8000 /* MEM_RELEASE */);
+    }
+#else
+    inline void* reserve_pages(size_t bytes) {
+        void* memory = mmap(nullptr, bytes, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+        return memory == MAP_FAILED ? nullptr : memory;
+    }
+
+    inline bool commit_pages(void* at, size_t bytes) {
+        return mprotect(at, bytes, PROT_READ | PROT_WRITE) == 0;
+    }
+
+    inline void release_pages(void* at, size_t bytes) {
+        munmap(at, bytes);
+    }
+#endif
+
+    // Memory for `count` values that never moves. A growable block reserves address space for
+    // `max_count` values up front and commits more as it grows. Integer arrays start zeroed.
+    template<typename U>
+    struct Block {
+        static constexpr size_t alignment = (std::max)(size_t{ 64 }, alignof(U));
+
+        U* data = nullptr;
+        size_t reserved = 0;  // Reserved bytes of a growable block. 0 means a fixed heap block.
+        size_t committed = 0; // Usable bytes of a growable block.
+
+        Block(uint32_t count, uint32_t max_count) {
+            if (max_count > count) {
+                reserved = round_to_step(size_t{ max_count } * sizeof(U));
+                data = static_cast<U*>(reserve_pages(reserved));
+                if (!data) {
+                    throw std::bad_alloc();
+                }
+                try {
+                    grow(count);
+                }
+                catch (...) {
+                    release_pages(data, reserved);
+                    throw;
+                }
+            }
+            else {
+                size_t bytes = size_t{ count } * sizeof(U);
+                data = static_cast<U*>(::operator new(bytes, std::align_val_t{ alignment }));
+                if constexpr (std::is_integral_v<U>) {
+                    std::memset(data, 0, bytes);
+                }
+            }
+        }
+
+        // Makes room for `count` values. Newly committed memory is zeroed by the OS.
+        void grow(uint32_t count) {
+            if (!reserved) {
+                return; // A fixed block is already as big as it gets.
+            }
+            size_t needed = round_to_step(size_t{ count } * sizeof(U));
+            if (needed > committed) {
+                if (!commit_pages(reinterpret_cast<char*>(data) + committed, needed - committed)) {
+                    throw std::bad_alloc();
+                }
+                committed = needed;
+            }
+        }
+
+        ~Block() {
+            if (reserved) {
+                release_pages(data, reserved);
+            }
+            else {
+                ::operator delete(data, std::align_val_t{ alignment });
+            }
+        }
+
+        Block(const Block&) = delete;
+        Block& operator=(const Block&) = delete;
+    };
 
     struct ISlab {
         virtual ~ISlab() = default;
@@ -98,18 +202,7 @@ namespace dcs_detail {
             generation = world_table.entries[index].generation;
         }
 
-        ~WorldState() {
-            // Destroy the values first, while children can still unregister themselves.
-            slabs.clear();
-
-            std::lock_guard<std::mutex> lock(world_table.mutex);
-            WorldTable::Entry& entry = world_table.entries[index];
-            entry.state = nullptr;
-            // UINT32_MAX retires the index instead of reviving an earlier WorldRef.
-            if (++entry.generation != UINT32_MAX) {
-                world_table.free_indices.push_back(index);
-            }
-        }
+        ~WorldState(); // Defined after World, which it needs.
     };
 
     inline World* find_world(uint32_t index, uint32_t generation) {
@@ -198,44 +291,52 @@ template<typename T>
 struct Slab final : public dcs_detail::ISlab {
 private:
     static_assert(std::is_nothrow_destructible_v<T>, "Stored destructors must not throw");
-    static constexpr size_t alignment = std::max(size_t{ 64 }, alignof(T));
-
-    struct Deallocate {
-        void operator()(T* data) const noexcept {
-            ::operator delete(data, std::align_val_t{ alignment });
-        }
-    };
 
     struct Removal {
         uint32_t slot;
         uint32_t generation;
     };
 
-    uint32_t cap;
-    uint32_t slot_extent = 0;             // One past the highest slot used since the last clear().
+    uint32_t cap;                                // Usable slots right now.
+    uint32_t max_cap;                            // cap can grow up to this. Equal to cap for a fixed slab.
+    uint32_t slot_extent = 0;                    // One past the highest slot used since the last clear().
     uint32_t live_count = 0;
-    std::unique_ptr<T, Deallocate> data;
-    std::vector<uint32_t> generations;    // Bumped on every removal, so older Atoms stop matching.
-    std::vector<uint32_t> free_slots;     // Removed slots that can be reused.
-    std::vector<uint64_t> presence;       // One bit per slot, set while the slot holds a visible value.
-    std::vector<uint32_t> queued_adds;    // Constructed slots that become visible in apply_queued().
-    std::vector<Removal> queued_removals; // Removed in apply_queued().
+    dcs_detail::Block<T> data;
+    dcs_detail::Block<uint32_t> generations;     // Bumped on every removal, so older Atoms stop matching.
+    dcs_detail::Block<uint64_t> presence;        // One bit per slot, set while the slot holds a visible value.
+    std::vector<uint32_t> free_slots;            // Removed slots that can be reused.
+    std::vector<uint32_t> queued_adds;           // Constructed slots that become visible in apply_queued().
+    std::vector<Removal> queued_removals;        // Removed in apply_queued().
     friend struct World;
     template<typename, bool>
     friend struct View;
 
-    static T* allocate(uint32_t capacity) {
-        size_t allocation_bytes = static_cast<size_t>(capacity) * sizeof(T);
-        void* memory = ::operator new(allocation_bytes, std::align_val_t{ alignment });
-        return static_cast<T*>(memory);
+    static uint32_t words(uint32_t slots) noexcept {
+        return (slots + 63) / 64;
     }
 
     bool is_live(uint32_t slot) const noexcept {
-        return slot < slot_extent && dcs_detail::has_bit(presence.data(), slot);
+        return slot < slot_extent && dcs_detail::has_bit(presence.data, slot);
     }
 
     bool matches(uint32_t slot, uint32_t generation) const noexcept {
-        return is_live(slot) && generations[slot] == generation;
+        return is_live(slot) && generations.data[slot] == generation;
+    }
+
+    // Makes room for at least `slots` slots in place, or throws if the slab is at its maximum.
+    void grow(uint32_t slots) {
+        if (slots > max_cap) {
+            throw std::length_error("Slab capacity exceeded");
+        }
+        // Grow by 1/8, and by at least one commit step, so growth stays rare without wasting much memory.
+        uint64_t step = (std::max)(uint64_t{ cap } / 8, uint64_t{ (std::max)(size_t{ 1 }, dcs_detail::commit_step / sizeof(T)) });
+        uint32_t new_cap = static_cast<uint32_t>((std::min)(uint64_t{ max_cap }, (std::max)(uint64_t{ slots }, cap + step)));
+
+        data.grow(new_cap);
+        generations.grow(new_cap);
+        presence.grow(words(new_cap));
+        free_slots.reserve(new_cap);
+        cap = new_cap;
     }
 
     // Constructs a value in a free slot. It stays invisible until show().
@@ -244,16 +345,16 @@ private:
         bool reuse_slot = !free_slots.empty();
         uint32_t slot = reuse_slot ? free_slots.back() : slot_extent;
         // After clear() the extent restarts at 0, so step over retired slots.
-        while (!reuse_slot && slot < cap && generations[slot] == UINT32_MAX) {
+        while (!reuse_slot && slot < cap && generations.data[slot] == UINT32_MAX) {
             ++slot;
         }
         if (slot >= cap) {
-            throw std::length_error("Slab capacity exceeded");
+            grow(slot + 1);
         }
 
         // The slot is raw memory. Placement new constructs a T in that slot;
         // assignment would require a T to already exist there.
-        ::new (data.get() + slot) T(std::forward<Args>(args)...);
+        ::new (data.data + slot) T(std::forward<Args>(args)...);
 
         // Only claim the slot once construction succeeded.
         if (reuse_slot) {
@@ -266,22 +367,22 @@ private:
     }
 
     void show(uint32_t slot) noexcept {
-        presence[slot / 64] |= 1ULL << (slot % 64);
+        presence.data[slot / 64] |= 1ULL << (slot % 64);
         ++live_count;
     }
 
     // Ends the lifetime of a live or queued value and frees its slot.
     void destroy(uint32_t slot) {
         if constexpr (std::is_same_v<T, World>) {
-            data.get()[slot].check_tree_not_busy();
+            data.data[slot].check_tree_not_busy();
         }
         if (is_live(slot)) {
-            presence[slot / 64] &= ~(1ULL << (slot % 64));
+            presence.data[slot / 64] &= ~(1ULL << (slot % 64));
             --live_count;
         }
-        std::destroy_at(data.get() + slot);
+        std::destroy_at(data.data + slot);
         // UINT32_MAX retires the slot instead of reviving an earlier handle.
-        if (++generations[slot] != UINT32_MAX) {
+        if (++generations.data[slot] != UINT32_MAX) {
             free_slots.push_back(slot);
         }
     }
@@ -317,9 +418,9 @@ private:
     }
 
 public:
-    explicit Slab(uint32_t capacity)
-        : cap(capacity), data(allocate(capacity)), generations(capacity),
-        presence((size_t{ capacity } + 63) / 64) {
+    Slab(uint32_t capacity, uint32_t max_capacity)
+        : cap(capacity), max_cap(max_capacity), data(capacity, max_capacity),
+        generations(capacity, max_capacity), presence(words(capacity), words(max_capacity)) {
         free_slots.reserve(capacity);
     }
 
@@ -386,7 +487,7 @@ public:
                 return;
             }
 
-            remaining_bits = view->slab->presence[0];
+            remaining_bits = view->slab->presence.data[0];
             move_to_next_live_slot();
         }
 
@@ -394,7 +495,7 @@ public:
             // Skip words that have no live slots left.
             while (remaining_bits == 0 && word_index + 1 < word_count) {
                 ++word_index;
-                remaining_bits = view->slab->presence[word_index];
+                remaining_bits = view->slab->presence.data[word_index];
             }
 
             if (remaining_bits == 0) {
@@ -416,9 +517,9 @@ public:
         }
 
         decltype(auto) operator*() const {
-            T& value = view->slab->data.get()[slot];
+            T& value = view->slab->data.data[slot];
             if constexpr (WithAtoms) {
-                Atom<Value> atom(WorldRef(*view->state), slot, view->slab->generations[slot]);
+                Atom<Value> atom(WorldRef(*view->state), slot, view->slab->generations.data[slot]);
                 return Entry{ atom, value };
             }
             else {
@@ -449,6 +550,7 @@ private:
     dcs_detail::WorldState* parent = nullptr;            // The World this one lives inside, if any.
     template<typename>
     friend struct Slab;
+    friend struct dcs_detail::WorldState;
 
     struct MutationGuard {
         dcs_detail::WorldState& state;
@@ -496,11 +598,20 @@ private:
         child.check_tree_not_busy();
     }
 
-    // emplace<World> gets a capacity or a World to move in. Only the World needs checking.
+    // Throws if storing `arg` here would make a World own itself: `arg` is this World,
+    // one of its ancestors, or a value that has this World inside it.
     template<typename Arg>
-    void check_world_arg(Arg& arg) const {
+    void check_arg(const Arg& arg) const {
         if constexpr (std::is_same_v<Arg, World>) {
             check_can_own(arg);
+        }
+
+        uintptr_t begin = reinterpret_cast<uintptr_t>(std::addressof(arg));
+        for (const World* world = this; world; world = world->parent ? world->parent->owner : nullptr) {
+            uintptr_t at = reinterpret_cast<uintptr_t>(world);
+            if (at >= begin && at < begin + sizeof(Arg)) {
+                throw std::logic_error("A World cannot own itself");
+            }
         }
     }
 
@@ -516,7 +627,7 @@ private:
     }
 
     template<typename T>
-    Slab<T>& ensure_slab(uint32_t capacity) {
+    Slab<T>& ensure_slab(uint32_t capacity, uint32_t max_capacity) {
         std::vector<std::unique_ptr<dcs_detail::ISlab>>& slabs = world_state->slabs;
         uint32_t type_id = TypeInfo<T>::id();
 
@@ -524,7 +635,7 @@ private:
             slabs.resize(type_id + 1);
         }
         if (!slabs[type_id]) {
-            slabs[type_id] = std::make_unique<Slab<T>>(capacity);
+            slabs[type_id] = std::make_unique<Slab<T>>(capacity, max_capacity);
         }
 
         return *static_cast<Slab<T>*>(slabs[type_id].get());
@@ -541,20 +652,17 @@ private:
             return nullptr;
         }
 
-        return slab->data.get() + atom.slot;
+        return slab->data.data + atom.slot;
     }
 
     // Constructs a T in a free slot. Queued values are allowed during iteration
     // and become visible at the next cleanup().
     template<typename T, typename... Args>
     Atom<T> create(bool queued, Args&&... args) {
-        if constexpr (std::is_same_v<T, World>) {
-            // Calls check_world_arg once for each argument.
-            (check_world_arg(args), ...);
-        }
+        (check_arg(args), ...);
 
         MutationGuard guard(*world_state, queued);
-        Slab<T>& slab = ensure_slab<T>(cap);
+        Slab<T>& slab = ensure_slab<T>(cap, cap);
         uint32_t slot;
         {
             dcs_detail::ParentScope scope(world_state.get());
@@ -568,7 +676,7 @@ private:
             slab.show(slot);
         }
 
-        return Atom<T>(ref(), slot, slab.generations[slot]);
+        return Atom<T>(ref(), slot, slab.generations.data[slot]);
     }
 
     void apply_queued() {
@@ -631,17 +739,22 @@ public:
     }
 
     // Gives T its own slot count instead of the World's. Call before the first value of T.
+    // With a larger max_capacity the slab starts at `capacity` and grows in place up to it:
+    // address space is reserved up front and memory is committed as the slab fills, so values never move.
     template<typename T>
-    void set_capacity(uint32_t capacity) {
+    void set_capacity(uint32_t capacity, uint32_t max_capacity = 0) {
         if (capacity == 0) {
             throw std::invalid_argument("Capacity must be positive");
+        }
+        if (max_capacity != 0 && max_capacity < capacity) {
+            throw std::invalid_argument("max_capacity must be at least capacity");
         }
         if (find_slab<T>()) {
             throw std::logic_error("set_capacity must come before the first value of its type");
         }
 
         MutationGuard guard(*world_state, true);
-        ensure_slab<T>(capacity);
+        ensure_slab<T>(capacity, (std::max)(capacity, max_capacity));
     }
 
     template<typename T, typename... Args>
@@ -668,6 +781,24 @@ public:
     template<typename T>
     Atom<std::remove_cvref_t<T>> queue_add(const T& value) {
         return create<std::remove_cvref_t<T>>(true, value);
+    }
+
+    // Moves a value into another World and returns its new Atom; the old Atom stops matching.
+    // Neither World may be iterated meanwhile. Returns an empty Atom if `atom` isn't live here.
+    template<typename T>
+    Atom<T> move_to(const Atom<T>& atom, World& destination) {
+        if (&destination == this) {
+            return atom;
+        }
+        T* value = get(atom);
+        if (!value) {
+            return {};
+        }
+
+        MutationGuard guard(*world_state);
+        Atom<T> moved = destination.add(std::move(*value));
+        find_slab<T>()->destroy(atom.slot);
+        return moved;
     }
 
     World& attach_world(World& child) {
@@ -773,7 +904,7 @@ public:
         if (!slab) {
             return {};
         }
-        return { slab->data.get(), slab->presence.data(), slab->slot_extent };
+        return { slab->data.data, slab->presence.data, slab->slot_extent };
     }
 
     template<typename T>
@@ -782,9 +913,26 @@ public:
         if (!slab) {
             return {};
         }
-        return { slab->data.get(), slab->presence.data(), slab->slot_extent };
+        return { slab->data.data, slab->presence.data, slab->slot_extent };
     }
 };
+
+inline dcs_detail::WorldState::~WorldState() {
+    // Destroy the values first, while children can still unregister themselves.
+    slabs.clear();
+    // Children still listed outlived this World's values (for example held by a shared_ptr). Let them go.
+    for (World* child : children) {
+        child->parent = nullptr;
+    }
+
+    std::lock_guard<std::mutex> lock(world_table.mutex);
+    WorldTable::Entry& entry = world_table.entries[index];
+    entry.state = nullptr;
+    // UINT32_MAX retires the index instead of reviving an earlier WorldRef.
+    if (++entry.generation != UINT32_MAX) {
+        world_table.free_indices.push_back(index);
+    }
+}
 
 template<typename T>
 bool Atom<T>::is_valid() const {

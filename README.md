@@ -204,6 +204,19 @@ world.get(a);          // returns nullptr
 
 ---
 
+## Moving Values Between Worlds
+
+`move_to()` moves a value into another World and returns its new Atom. The old Atom stops matching, so anything else still holding it gets `nullptr`:
+
+```cpp
+Atom<Enemy> enemy = chunkA.add(Enemy{ 100 });
+enemy = chunkA.move_to(enemy, chunkB);   // now lives in chunkB
+```
+
+Neither World may be iterated during the move, so collect the Atoms in a loop and move them after it. If the destination is full, it throws and the value stays where it was. Moving a child World keeps every Atom inside that child valid, since the child's storage moves with it.
+
+---
+
 ## Discarding a World
 
 When you want to throw out everything in a World and start fresh, use: `discard()`:
@@ -253,7 +266,16 @@ World scene(16);                            // 16 slots for most types
 scene.set_capacity<RenderObject>(10000);   // but room for 10000 render objects
 ```
 
-Deleted slots are reused without moving other live values. Slots occupy contiguous memory, but deletion will leave holes. Removing, clearing, discarding or destroying a value ends its lifetime. Pointers to other live values survive slot reuse and World moves. Raw slot access does not block World operations; keep track of when those pointers are valid.
+Pass a maximum as well to let a type grow:
+
+```cpp
+World effects(16);
+effects.set_capacity<Particle>(1000, 10'000'000);   // starts at 1000, grows in place up to 10M
+```
+
+A growable slab reserves address space for its maximum up front (`VirtualAlloc`) and only commits memory as it fills, in steps of 1/8 of its size, and at least 64 KB. Values never move, so pointers, raw slots and Atoms stay valid while it grows. Reserving costs no memory, but a growable slab commits at least about 200 KB, so keep small types fixed. Types without a maximum stay fixed size on the normal heap.
+
+Deleted slots are reused without moving other live values. Slots occupy contiguous memory, but deletion will leave holes. Removing, clearing, discarding or destroying a value ends its lifetime. Pointers to other live values survive slot reuse and World moves. Raw slot access does not block World operations; keep track of when those pointers are valid. A slab that grows keeps its raw pointers, but a `RawSlots` you are holding still has the old `extent`, so fetch it again to see new slots.
 
 Separate Worlds can be used on separate threads at the same time: the parts they share (type registration, creating and destroying Worlds, and `atom.world()` lookups) are synchronized.
 
@@ -263,7 +285,7 @@ A single World is not thread-safe yet. Don't use the same World from two threads
 
 ## Planned Features
 
-Dense packing, slab growth, maybe coroutines, interface for domain-specific functions and serialization remain future work.
+Dense packing, maybe coroutines, interface for domain-specific functions and serialization remain future work.
 
 ---
 

@@ -6,6 +6,7 @@
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -126,11 +127,140 @@ void multipleWorldsExample() {
     }
 }
 
+struct Particle { Vec3 position; Vec3 velocity; float life; };
+struct Enemy { std::string name; int hp; };
+struct Room { World enemies{ 8 }; std::string name; };
+
+// A slab that can grow: it starts with room for 64 particles and grows up to 100000.
+// It grows in place, so pointers and Atoms to existing particles stay valid.
+void growableSlabExample() {
+    std::cout << "--- Growable Slab Example ---\n";
+
+    World effects(16);
+    effects.set_capacity<Particle>(64, 100000);
+
+    Atom<Particle> first = effects.add(Particle{ { 0, 0, 0 }, { 1, 0, 0 }, 2.0f });
+    Particle* firstPointer = effects.get(first);
+
+    for (int i = 0; i < 5000; i++) {
+        effects.add(Particle{ { 0, 0, 0 }, { 1, 0, 0 }, 2.0f });
+    }
+
+    std::cout << "Particles: " << effects.size<Particle>() << "\n";
+    if (effects.get(first) == firstPointer) {
+        std::cout << "First particle is still at the same address\n\n";
+    }
+    else {
+        std::cout << "First particle moved in memory\n\n";
+    }
+}
+
+// add() isn't allowed while iterating. Use queue_add() and queue_free() instead;
+// both take effect at cleanup().
+void spawnWhileIteratingExample() {
+    std::cout << "--- Spawn While Iterating Example ---\n";
+
+    World effects(16);
+    effects.set_capacity<Particle>(64, 100000);
+
+    for (int i = 0; i < 100; i++) {
+        float life = 1.0f;
+        if (i % 2 == 1) {
+            life = 2.0f;
+        }
+        effects.add(Particle{ { 0, 0, 0 }, { 1, 0, 0 }, life });
+    }
+
+    // iter_atoms() gives each particle together with its Atom.
+    for (auto [atom, particle] : effects.iter_atoms<Particle>()) {
+        particle.life -= 1.0f;
+
+        if (particle.life <= 0.0f) {
+            // The particle dies and leaves two sparks behind.
+            effects.queue_free(atom);
+            effects.queue_add(Particle{ particle.position, { 0, 2, 0 }, 1.0f });
+            effects.queue_add(Particle{ particle.position, { 0, -2, 0 }, 1.0f });
+        }
+    }
+
+    std::cout << "Before cleanup: " << effects.size<Particle>() << " particles\n";
+    effects.cleanup();
+    std::cout << "After cleanup: " << effects.size<Particle>() << " particles\n\n";
+}
+
+// When an effect is over, discard() throws away everything in its World at once.
+// The memory is kept, so the next effect can reuse it.
+void discardExample() {
+    std::cout << "--- Discard Example ---\n";
+
+    World explosion(16);
+    explosion.set_capacity<Particle>(1000);
+
+    for (int i = 0; i < 1000; i++) {
+        explosion.add(Particle{ { 0, 0, 0 }, { 0, 1, 0 }, 1.0f });
+    }
+    std::cout << "Explosion particles: " << explosion.size<Particle>() << "\n";
+
+    explosion.discard();
+    std::cout << "After discard: " << explosion.size<Particle>() << "\n\n";
+}
+
+// A World inside your own type counts as a child World, so cleanup_tree() reaches it too.
+void worldsInsideTypesExample() {
+    std::cout << "--- Worlds Inside Types Example ---\n";
+
+    World level(8);
+    Atom<Room> hallAtom = level.add(Room{ .name = "Hall" });
+    Room* hall = level.get(hallAtom);
+
+    hall->enemies.add(Enemy{ "Goblin", 30 });
+    Atom<Enemy> ghost = hall->enemies.add(Enemy{ "Ghost", 0 });
+    hall->enemies.queue_free(ghost);
+
+    level.cleanup_tree(); // also applies the ghost's removal inside the hall
+    std::cout << hall->name << " enemies: " << hall->enemies.size<Enemy>() << "\n\n";
+}
+
+// move_to() moves a value into another World and returns its new Atom.
+// The old Atom stops matching.
+void moveBetweenWorldsExample() {
+    std::cout << "--- Move Between Worlds Example ---\n";
+
+    World hall(8);
+    World vault(8);
+
+    Atom<Enemy> goblin = hall.add(Enemy{ "Goblin", 30 });
+    Atom<Enemy> movedGoblin = hall.move_to(goblin, vault);
+
+    std::cout << "In the vault: " << vault.get(movedGoblin)->name << "\n";
+    if (!goblin.is_valid()) {
+        std::cout << "The old Atom no longer works\n";
+    }
+
+    // Moving inside a loop isn't allowed, so collect the Atoms first and move them afterwards.
+    std::vector<Atom<Enemy>> leaving;
+    for (auto [atom, enemy] : vault.iter_atoms<Enemy>()) {
+        if (enemy.hp > 0) {
+            leaving.push_back(atom);
+        }
+    }
+    for (Atom<Enemy> atom : leaving) {
+        vault.move_to(atom, hall);
+    }
+
+    std::cout << "Back in the hall: " << hall.size<Enemy>() << " enemy\n\n";
+}
+
 void runExamples() {
     basicExamples();
     directWorldExample();
     multipleWorldsExample();
     universeExample();
+    growableSlabExample();
+    spawnWhileIteratingExample();
+    discardExample();
+    worldsInsideTypesExample();
+    moveBetweenWorldsExample();
 }
 
 void runBenchmarks() {
@@ -146,6 +276,8 @@ void printUsage() {
 }
 
 }
+
+// Some unrelated rendering stuff uncommented, i use put it here for testing purposes
 
 //#include <Windows.h>
 //#include <wrl.h>
@@ -214,4 +346,9 @@ int main(int argc, char* argv[]) {
 
     //run_benchmarks();
     multipleWorldsExample();
+    growableSlabExample();
+    spawnWhileIteratingExample();
+    discardExample();
+    worldsInsideTypesExample();
+    moveBetweenWorldsExample();
 }
