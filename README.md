@@ -125,6 +125,7 @@ for (auto [atom, body] : world.iter_atoms<Body>()) {
 world.cleanup();
 ```
 
+<<<<<<< HEAD
 `add()` throws while the World is being iterated. Use `queue_add()` instead: the value is constructed right away and its Atom is returned, but it only becomes visible at the next `cleanup()`:
 
 ```cpp
@@ -136,6 +137,8 @@ for (auto& gun : world.iter<Gun>()) {
 world.cleanup(); // the bullets become visible here
 ```
 
+=======
+>>>>>>> 3027edcdeb75f816034347151bd585b47d94c008
 ---
 
 ## Direct World Access
@@ -177,6 +180,7 @@ World& nestedWorld = universe.attach_world(nested);   // nested is now empty
 
 Attachment moves the storage internally and leaves the source World empty.
 
+<<<<<<< HEAD
 Worlds can also live inside your own types. A World that is created while its value is added counts as a child World, so `cleanup_tree()`, ownership-cycle checks and busy checks see it:
 
 ```cpp
@@ -188,6 +192,9 @@ level.cleanup_tree(); // also cleans up room's items
 ```
 
 A World created inside a value after it was added (for example pushed into a `std::vector<World>` member later) is not tracked.
+=======
+Worlds embedded inside other stored types are not tracked by recursive cleanup or ownership-cycle checks (yet). Store child Worlds directly as shown above.
+>>>>>>> 3027edcdeb75f816034347151bd585b47d94c008
 
 ---
 
@@ -220,7 +227,11 @@ world.add<int32_t>(7); // reuses the same memory
 
 `discard()` empties the World. Anything you added is gone, but the World itself is ready to use again. Atoms from before the discard no longer point at anything.
 
+<<<<<<< HEAD
 Use `clear<T>()` to clear one slab and cancel its queued removals. `cleanup()` applies this World's queued additions and removals; `cleanup_tree()` also processes child Worlds recursively.
+=======
+Use `clear<T>()` to clear one slab and cancel its queued removals. `cleanup()` applies this World's queued removals; `cleanup_tree()` also processes directly stored child Worlds recursively.
+>>>>>>> 3027edcdeb75f816034347151bd585b47d94c008
 
 ---
 
@@ -244,6 +255,7 @@ void example() {
 
 ## Technical considerations
 
+<<<<<<< HEAD
 Slabs are fixed capacity. The `cap` you pass to `World(cap)` must be positive. It is a hard limit per type; exceeding it throws `std::length_error`, there are ideas of using a linked-list system to support bigger caps. Queued adds count toward the limit.
 
 Every type gets `cap` slots by default. Give one type its own size with `set_capacity<T>(n)` before adding the first value of that type:
@@ -256,6 +268,13 @@ scene.set_capacity<RenderObject>(10000);   // but room for 10000 render objects
 Deleted slots are reused without moving other live values. Slots occupy contiguous memory, but deletion will leave holes. Removing, clearing, discarding or destroying a value ends its lifetime. Pointers to other live values survive slot reuse and World moves. Raw slot access does not block World operations; keep track of when those pointers are valid.
 
 World data is not thread-safe atm. Synchronize access yourself if you use it from multiple threads (One idea could be to give worlds a semaphore or equivalent to lock a world so only one thread can use it at once). Type registration, creating and destroying Worlds, and `atom.world()` lookups are synchronized, so separate Worlds can be used on separate threads. Runtime type IDs are not stable identifiers for saved files.
+=======
+Slabs are fixed capacity. The `cap` you pass to `World(cap)` must be positive. It is a hard limit per type; exceeding it throws `std::length_error`, there are ideas of using a linked-list system to support bigger caps.
+
+Deleted slots are reused without moving other live values. Slots occupy contiguous memory, but deletion will leave holes. Removing, clearing, discarding or destroying a value ends its lifetime. Pointers to other live values survive slot reuse and World moves. Raw slot access does not block World operations; keep track of when those pointers are valid.
+
+World data is not thread-safe atm. Synchronize access yourself if you use it from multiple threads (One idea could be to give worlds a semaphore or equivalent to lock a world so only one thread can use it at once). Type registration is synchronized atm, but runtime type IDs are not stable identifiers for saved files.
+>>>>>>> 3027edcdeb75f816034347151bd585b47d94c008
 
 ---
 
