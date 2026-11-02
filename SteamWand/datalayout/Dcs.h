@@ -205,6 +205,10 @@ namespace dcs_detail {
         ~WorldState(); // Defined after World, which it needs.
     };
 
+    // Adds a value to a World. Defined after World, so Slab can use it.
+    template<typename T>
+    void add_to(World& world, T&& value);
+
     inline World* find_world(uint32_t index, uint32_t generation) {
         std::lock_guard<std::mutex> lock(world_table.mutex);
         if (index >= world_table.entries.size() || world_table.entries[index].generation != generation) {
@@ -297,6 +301,12 @@ private:
         uint32_t generation;
     };
 
+    struct Move {
+        uint32_t slot;
+        uint32_t generation;
+        WorldRef destination;
+    };
+
     uint32_t cap;                                // Usable slots right now.
     uint32_t max_cap;                            // cap can grow up to this. Equal to cap for a fixed slab.
     uint32_t slot_extent = 0;                    // One past the highest slot used since the last clear().
@@ -307,6 +317,7 @@ private:
     std::vector<uint32_t> free_slots;            // Removed slots that can be reused.
     std::vector<uint32_t> queued_adds;           // Constructed slots that become visible in apply_queued().
     std::vector<Removal> queued_removals;        // Removed in apply_queued().
+    std::vector<Move> queued_moves;              // Moved to another World in apply_queued().
     friend struct World;
     template<typename, bool>
     friend struct View;
@@ -393,6 +404,25 @@ private:
         }
         queued_adds.clear();
 
+        // Moves run before removals, so a value that was both moved and freed gets moved.
+        std::vector<Move> moves = std::move(queued_moves);
+        queued_moves.clear();
+        for (size_t i = 0; i < moves.size(); ++i) {
+            World* destination = moves[i].destination.get();
+            if (!destination || !matches(moves[i].slot, moves[i].generation)) {
+                continue; // The destination is gone or the value was already removed.
+            }
+            try {
+                dcs_detail::add_to(*destination, std::move(data.data[moves[i].slot]));
+            }
+            catch (...) {
+                // This value stays here. Moves after it are kept for the next cleanup().
+                queued_moves.assign(moves.begin() + i + 1, moves.end());
+                throw;
+            }
+            destroy(moves[i].slot);
+        }
+
         for (const Removal& removal : queued_removals) {
             // Skips values that were freed twice or already removed by clear().
             if (matches(removal.slot, removal.generation)) {
@@ -413,6 +443,7 @@ private:
         }
         queued_adds.clear();
         queued_removals.clear();
+        queued_moves.clear();
         free_slots.clear();
         slot_extent = 0;
     }
@@ -642,6 +673,19 @@ private:
     }
 
     template<typename T>
+    void create_slab(uint32_t capacity, uint32_t max_capacity) {
+        if (capacity == 0) {
+            throw std::invalid_argument("Capacity must be positive");
+        }
+        if (find_slab<T>()) {
+            throw std::logic_error("Capacity must be set before the first value of its type");
+        }
+
+        MutationGuard guard(*world_state, true);
+        ensure_slab<T>(capacity, max_capacity);
+    }
+
+    template<typename T>
     T* lookup_value(const Atom<T>& atom) const {
         if (atom.world_ref != ref()) {
             return nullptr;
@@ -738,23 +782,17 @@ public:
         return cap;
     }
 
-    // Gives T its own slot count instead of the World's. Call before the first value of T.
-    // With a larger max_capacity the slab starts at `capacity` and grows in place up to it:
-    // address space is reserved up front and memory is committed as the slab fills, so values never move.
+    // Gives T a fixed slot count instead of the World's. Call before the first value of T.
     template<typename T>
-    void set_capacity(uint32_t capacity, uint32_t max_capacity = 0) {
-        if (capacity == 0) {
-            throw std::invalid_argument("Capacity must be positive");
-        }
-        if (max_capacity != 0 && max_capacity < capacity) {
-            throw std::invalid_argument("max_capacity must be at least capacity");
-        }
-        if (find_slab<T>()) {
-            throw std::logic_error("set_capacity must come before the first value of its type");
-        }
+    void set_capacity(uint32_t capacity) {
+        create_slab<T>(capacity, capacity);
+    }
 
-        MutationGuard guard(*world_state, true);
-        ensure_slab<T>(capacity, (std::max)(capacity, max_capacity));
+    // Lets T grow in place from the World's capacity up to max_capacity. Call before the first value of T.
+    // Address space is reserved up front and memory is committed as the slab fills, so values never move.
+    template<typename T>
+    void set_max_capacity(uint32_t max_capacity) {
+        create_slab<T>((std::min)(cap, max_capacity), max_capacity);
     }
 
     template<typename T, typename... Args>
@@ -799,6 +837,21 @@ public:
         Atom<T> moved = destination.add(std::move(*value));
         find_slab<T>()->destroy(atom.slot);
         return moved;
+    }
+
+    // Like move_to(), but safe while iterating: the value moves at this World's next cleanup().
+    // Use move_to() when you need the new Atom straight away.
+    template<typename T>
+    bool queue_move_to(const Atom<T>& atom, World& destination) {
+        if (world_state->mutation_in_progress) {
+            throw std::logic_error("World is being mutated");
+        }
+        if (&destination == this || !is_live(atom)) {
+            return false;
+        }
+
+        find_slab<T>()->queued_moves.push_back({ atom.slot, atom.generation, destination.ref() });
+        return true;
     }
 
     World& attach_world(World& child) {
@@ -916,6 +969,11 @@ public:
         return { slab->data.data, slab->presence.data, slab->slot_extent };
     }
 };
+
+template<typename T>
+void dcs_detail::add_to(World& world, T&& value) {
+    world.add(std::forward<T>(value));
+}
 
 inline dcs_detail::WorldState::~WorldState() {
     // Destroy the values first, while children can still unregister themselves.

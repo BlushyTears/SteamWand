@@ -6,7 +6,6 @@
 #include <iostream>
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace {
 
@@ -131,13 +130,13 @@ struct Particle { Vec3 position; Vec3 velocity; float life; };
 struct Enemy { std::string name; int hp; };
 struct Room { World enemies{ 8 }; std::string name; };
 
-// A slab that can grow: it starts with room for 64 particles and grows up to 100000.
+// A slab that can grow: it starts with the World's 64 slots and grows up to 100000.
 // It grows in place, so pointers and Atoms to existing particles stay valid.
 void growableSlabExample() {
     std::cout << "--- Growable Slab Example ---\n";
 
-    World effects(16);
-    effects.set_capacity<Particle>(64, 100000);
+    World effects(64);
+    effects.set_max_capacity<Particle>(100000);
 
     Atom<Particle> first = effects.add(Particle{ { 0, 0, 0 }, { 1, 0, 0 }, 2.0f });
     Particle* firstPointer = effects.get(first);
@@ -161,7 +160,7 @@ void spawnWhileIteratingExample() {
     std::cout << "--- Spawn While Iterating Example ---\n";
 
     World effects(16);
-    effects.set_capacity<Particle>(64, 100000);
+    effects.set_max_capacity<Particle>(100000);
 
     for (int i = 0; i < 100; i++) {
         float life = 1.0f;
@@ -237,16 +236,13 @@ void moveBetweenWorldsExample() {
         std::cout << "The old Atom no longer works\n";
     }
 
-    // Moving inside a loop isn't allowed, so collect the Atoms first and move them afterwards.
-    std::vector<Atom<Enemy>> leaving;
+    // Inside a loop, queue the move instead. It happens at cleanup().
     for (auto [atom, enemy] : vault.iter_atoms<Enemy>()) {
         if (enemy.hp > 0) {
-            leaving.push_back(atom);
+            vault.queue_move_to(atom, hall);
         }
     }
-    for (Atom<Enemy> atom : leaving) {
-        vault.move_to(atom, hall);
-    }
+    vault.cleanup();
 
     std::cout << "Back in the hall: " << hall.size<Enemy>() << " enemy\n\n";
 }
@@ -343,7 +339,6 @@ void printUsage() {
 //}
 
 int main(int argc, char* argv[]) {
-
     //run_benchmarks();
     multipleWorldsExample();
     growableSlabExample();
