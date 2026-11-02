@@ -155,9 +155,9 @@ world.discard();
 
 ---
 
-## Optional Traits
+## Optional Traits (instead of ECS Queries)
 
-To give only some values a trait that comes and goes, like a status effect, store the trait as its own type with an Atom back to its owner:
+SteamWand has no multi-type queries like an ECS's "everything with `Enemy` and `Burning`". To give only some values a trait that comes and goes, like a status effect, store the trait as its own type with an Atom back to its owner:
 
 ```cpp
 struct Burning { Atom<Enemy> target; float timeLeft; };
