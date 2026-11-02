@@ -247,6 +247,45 @@ void moveBetweenWorldsExample() {
     std::cout << "Back in the hall: " << hall.size<Enemy>() << " enemy\n\n";
 }
 
+// A system is a function a World runs on its own data every update(). The same system can be
+// given to several Worlds, and update() also runs the systems of the Worlds inside.
+void poisonSystem(World& world, float) {
+    for (auto [atom, enemy] : world.iter_atoms<Enemy>()) {
+        enemy.hp -= 10;
+        if (enemy.hp <= 0) {
+            world.queue_free(atom);
+        }
+    }
+}
+
+void systemsExample() {
+    std::cout << "--- Systems Example ---\n";
+
+    World level(8);
+
+    World swamp(8);
+    swamp.add(Enemy{ "Frog", 20 });
+    swamp.add(Enemy{ "Snake", 10 });
+    swamp.add_system(poisonSystem);
+    World& swampRoom = level.attach_world(swamp);
+
+    World cave(8);
+    cave.add(Enemy{ "Bat", 10 });
+    World& caveRoom = level.attach_world(cave); // no poison in the cave
+
+    // A lambda works too.
+    level.add_system([](World& world, float) {
+        std::cout << "Updating a level with " << world.size<World>() << " rooms\n";
+    });
+
+    for (int frame = 1; frame <= 2; frame++) {
+        level.update(0.016f); // runs the level's systems, then the swamp's and the cave's
+        std::cout << "Frame " << frame << ": swamp has " << swampRoom.size<Enemy>()
+                  << " enemies, cave has " << caveRoom.size<Enemy>() << "\n";
+    }
+    std::cout << "\n";
+}
+
 void runExamples() {
     basicExamples();
     directWorldExample();
@@ -257,6 +296,7 @@ void runExamples() {
     discardExample();
     worldsInsideTypesExample();
     moveBetweenWorldsExample();
+    systemsExample();
 }
 
 void runBenchmarks() {
@@ -346,4 +386,5 @@ int main(int argc, char* argv[]) {
     discardExample();
     worldsInsideTypesExample();
     moveBetweenWorldsExample();
+    systemsExample();
 }

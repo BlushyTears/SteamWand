@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -187,6 +188,7 @@ namespace dcs_detail {
         bool mutation_in_progress = false;
         std::vector<std::unique_ptr<ISlab>> slabs; // Indexed by TypeInfo<T>::id().
         std::vector<World*> children;              // Every tracked World living inside this World's values.
+        std::vector<std::function<void(World&, float)>> systems; // Run by World::update(), in order.
 
         explicit WorldState(World* world) : owner(world) {
             std::lock_guard<std::mutex> lock(world_table.mutex);
@@ -908,6 +910,32 @@ public:
         std::vector<World*>& children = world_state->children;
         for (size_t i = 0; i < children.size(); ++i) {
             children[i]->cleanup_tree();
+        }
+    }
+
+    // A function that updates one World. Plain functions and lambdas both work.
+    using System = std::function<void(World& world, float dt)>;
+
+    // Adds a system that update() runs on this World. Systems run in the order they were added,
+    // stay through discard() and move with the World.
+    void add_system(System system) {
+        world_state->systems.push_back(std::move(system));
+    }
+
+    // Runs this World's systems, applies their queued changes with cleanup(),
+    // then updates every World inside this one the same way.
+    void update(float dt) {
+        // A system added during the update runs from the next update on.
+        size_t count = world_state->systems.size();
+        for (size_t i = 0; i < count; ++i) {
+            System system = world_state->systems[i]; // A copy, in case a system adds another one.
+            system(*this, dt);
+        }
+        cleanup();
+
+        std::vector<World*>& children = world_state->children;
+        for (size_t i = 0; i < children.size(); ++i) {
+            children[i]->update(dt);
         }
     }
 

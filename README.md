@@ -155,6 +155,31 @@ world.discard();
 
 ---
 
+## Systems
+
+A system is a function a World runs on its own data. `update()` runs a World's systems in the order they were added, calls `cleanup()`, then updates every World inside it the same way:
+
+```cpp
+void poison(World& world, float dt) {
+    for (auto [atom, enemy] : world.iter_atoms<Enemy>()) {
+        enemy.hp -= 10;
+        if (enemy.hp <= 0) {
+            world.queue_free(atom);
+        }
+    }
+}
+
+swamp.add_system(poison);
+cave.add_system(poison);
+level.add_system([&renderer](World& world, float dt) { renderer.draw(world); });
+
+level.update(dt);
+```
+
+The same system can run on several Worlds, each on its own data. Systems stay through `discard()` and move with their World.
+
+---
+
 ## Capacity
 
 Every type gets the `cap` from `World(cap)`. Going over throws `std::length_error`, and queued values count toward it. Give a type its own size, or let it grow from `cap`, before its first value:
