@@ -36,7 +36,6 @@ void Update(Renderer& renderer) {
 }
 
 void Start(Renderer& renderer) {
-
     // Reminder: Working directory is bin/x64/Debug/SteamWandMain
     uint32_t brick = renderer.UploadTexture(LoadImageFile("../../../../assets/wall-texture.png"));
 

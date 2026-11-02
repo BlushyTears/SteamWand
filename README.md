@@ -155,6 +155,32 @@ world.discard();
 
 ---
 
+## Optional Traits
+
+To give only some values a trait that comes and goes, like a status effect, store the trait as its own type with an Atom back to its owner:
+
+```cpp
+struct Burning { Atom<Enemy> target; float timeLeft; };
+
+world.add(Burning{ goblin, 3.0f });
+
+for (auto [atom, burn] : world.iter_atoms<Burning>()) {
+    Enemy* enemy = world.get(burn.target);
+    burn.timeLeft -= dt;
+
+    if (!enemy || burn.timeLeft <= 0) {
+        world.queue_free(atom);
+        continue;
+    }
+    enemy->hp -= 1;
+}
+world.cleanup();
+```
+
+Only burning enemies pay for it, and the loop only visits them. If the enemy is removed first, `get()` returns `nullptr` and the trait cleans itself up.
+
+---
+
 ## Systems
 
 A system is a function a World runs on its own data. `update()` runs a World's systems in the order they were added, calls `cleanup()`, then updates every World inside it the same way:

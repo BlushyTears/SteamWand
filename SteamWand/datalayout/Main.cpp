@@ -205,6 +205,8 @@ void discardExample() {
 }
 
 // A World inside your own type counts as a child World, so cleanup_tree() reaches it too.
+// This is a good approach if you have bundeled data that has the same lifetimes 
+// and should be thrown away together, but also more complicated to work with.
 void worldsInsideTypesExample() {
     std::cout << "--- Worlds Inside Types Example ---\n";
 
@@ -247,7 +249,7 @@ void moveBetweenWorldsExample() {
     std::cout << "Back in the hall: " << hall.size<Enemy>() << " enemy\n\n";
 }
 
-// A system is a function a World runs on its own data every update(). The same system can be
+// A system is an ecs-inspired function a World runs on its own data every update(). The same system can be
 // given to several Worlds, and update() also runs the systems of the Worlds inside.
 void poisonSystem(World& world, float) {
     for (auto [atom, enemy] : world.iter_atoms<Enemy>()) {
@@ -380,11 +382,11 @@ void printUsage() {
 
 int main(int argc, char* argv[]) {
     //run_benchmarks();
-    multipleWorldsExample();
-    growableSlabExample();
-    spawnWhileIteratingExample();
-    discardExample();
-    worldsInsideTypesExample();
-    moveBetweenWorldsExample();
+    //multipleWorldsExample();
+    //growableSlabExample();
+    //spawnWhileIteratingExample();
+    //discardExample();
+    //worldsInsideTypesExample();
+    //moveBetweenWorldsExample();
     systemsExample();
 }
