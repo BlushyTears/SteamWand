@@ -3,6 +3,7 @@
 #include <thread>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <windows.h>
 #include <conio.h>

@@ -14,7 +14,7 @@
 
 ## Build and run on Windows
 
-Clone this repo and Open **SteamWand.sln** in Visual Studio 2022 (Other versions hasn't been tested yet) and right click **SteamWandDataLayout** or **SteamWandMain** and click "Set as startup project". SteamWandMain (the application, linking the SteamWandRendering engine library) should be picked by default so you should be able to skip this step if you just want it to work out of the box.
+Clone this repo and Open **SteamWand.sln** in Visual Studio 2022 (Other versions hasn't been tested yet) and right click **SteamWandDataLayout** or **SteamWandMain** and click "Set as startup project". SteamWandMain (the application, linking the SteamWandRendering engine library) should be picked by default so you should be able to skip this step if you just want it to work out of the box. `Dcs.h` includes `<windows.h>`, so define `NOMINMAX` if you use it outside this solution.
 
 ## Core Philosophy of DCS (Dynamic component system)
 
@@ -51,7 +51,7 @@ if (PlayerData* p = world.get(player)) {
 }
 ```
 
-`get()` returns `nullptr` once the value is removed, or if the Atom belongs to another World. Removed slots get reused, but an old Atom never matches the new value. `world.is_live(atom)` and `atom.is_valid()` check whether a value still exists.
+`get()` returns `nullptr` once the value is removed, or if the Atom belongs to another World. Removed slots get reused, but an old Atom doesn't match the new value (unless that one slot is reused 4 billion times). `world.is_live(atom)` and `atom.is_valid()` check whether a value still exists. Stored types have to be movable, even with `emplace()`, and a `const World&` still gives you writable values.
 
 ---
 
@@ -63,7 +63,7 @@ for (PlayerData& p : world.iter<PlayerData>()) {
 }
 ```
 
-`add()` and removal aren't allowed inside a loop and throw `std::logic_error`. Queue them instead; they take effect at `cleanup()`. `queue_add()` still returns the new Atom right away:
+`add()` and removal aren't allowed inside a loop, or inside the constructor or destructor of a value in that World, and throw `std::logic_error`. Queue them instead; they take effect at `cleanup()`. `queue_add()` still returns the new Atom right away, though it isn't live until then:
 
 ```cpp
 for (auto [atom, enemy] : world.iter_atoms<Enemy>()) {
@@ -105,7 +105,7 @@ nested.add<int32_t>(100);
 World& attached = universe.attach_world(nested); // nested is now empty
 ```
 
-A World inside your own type counts as a child too:
+A World stored directly as a member of your own type counts as a child too:
 
 ```cpp
 struct Room { World items{ 64 }; int id; };
@@ -115,9 +115,9 @@ level.add(Room{});
 level.cleanup_tree(); // also cleans up every room's items
 ```
 
-A World created inside a value after it was added (for example pushed into a `std::vector<World>` member later) isn't tracked. Destroying or discarding a World destroys its children too.
+A World behind a `std::vector` or `unique_ptr` in your type isn't reliably tracked, so `cleanup_tree()`, `update()` and the ownership checks can miss it. Destroying or discarding a World destroys its children too. Nesting thousands of levels deep can overflow the stack when that happens.
 
-Get a value's World with `atom.world()`, or keep a `WorldRef` from `world.ref()`. Both follow the World through moves and return `nullptr` once it's destroyed. A raw `World*` doesn't follow moves.
+Get a value's World with `atom.world()`, or keep a `WorldRef` from `world.ref()`. Both follow the World through moves and return `nullptr` once it's destroyed. A raw `World*` doesn't follow moves. Assigning over a World (`world = World(1024)`) ends its old Atoms and WorldRefs too. Anything a value's destructor adds during that assignment lands in the new World.
 
 ---
 
@@ -127,7 +127,7 @@ Get a value's World with `atom.world()`, or keep a `WorldRef` from `world.ref()`
 enemy = chunkA.move_to(enemy, chunkB);
 ```
 
-You get a new Atom and the old one stops working. If the destination is full it throws and nothing moves. Moving a child World keeps the Atoms inside it valid.
+You get a new Atom and the old one stops working. If the destination is full it throws and nothing moves. Moving a value into a World inside itself also throws, but any members declared before that World are lost. Moving a child World keeps the Atoms inside it valid.
 
 `move_to()` isn't allowed inside a loop. Use `queue_move_to()` there; the value moves at `cleanup()`:
 
@@ -140,7 +140,7 @@ for (auto [atom, enemy] : chunkA.iter_atoms<Enemy>()) {
 chunkA.cleanup();
 ```
 
-A queued move doesn't give you the new Atom, so use `move_to()` when you need it.
+A queued move doesn't give you the new Atom, so use `move_to()` when you need it. If a value is both freed and moved, whichever was queued first wins. If the destination is destroyed before `cleanup()`, the value is destroyed too. If the destination is full or being iterated, `cleanup()` throws each time until that clears, and any queued changes after that move wait.
 
 ---
 
@@ -153,11 +153,13 @@ world.discard();
 
 `clear<T>()` empties one type and `discard()` empties everything, including anything queued. Both keep the memory for reuse.
 
+A value's destructor can still queue things here. They show up at the next `cleanup()` or get thrown away with the rest, so a destructor that always queues its own type stops `clear<T>()` and `discard()` from ever finishing.
+
 ---
 
-## Optional Traits
+## Optional Traits (instead of ECS Queries)
 
-To give only some values a trait that comes and goes, like a status effect, store the trait as its own type with an Atom back to its owner:
+SteamWand has no multi-type queries like an ECS's "everything with `Enemy` and `Burning`". To give only some values a trait that comes and goes, like a status effect, store the trait as its own type with an Atom back to its owner:
 
 ```cpp
 struct Burning { Atom<Enemy> target; float timeLeft; };
@@ -202,7 +204,7 @@ level.add_system([&renderer](World& world, float dt) { renderer.draw(world); });
 level.update(dt);
 ```
 
-The same system can run on several Worlds, each on its own data. Systems stay through `discard()` and move with their World.
+The same system can run on several Worlds, each on its own data. Systems stay through `discard()` and move with their World. If a system removes or moves its own World, that World's update stops there. Removing or moving Worlds during an update can also make a nearby World skip a frame or run twice.
 
 ---
 
@@ -212,11 +214,11 @@ Every type gets the `cap` from `World(cap)`. Going over throws `std::length_erro
 
 ```cpp
 World scene(16);
-scene.set_capacity<RenderObject>(10000);
-scene.set_max_capacity<Particle>(10'000'000); // grows from 16 up to 10M
+scene.set_fixed_capacity<RenderObject>(10000);
+scene.allow_growth<Particle>(10000000); // grows from 16 up to 10 million
 ```
 
-Growing slabs reserve address space up front and commit memory as they fill, so values never move. They commit at least ~200 KB, so keep small types fixed.
+Slabs reserve address space up front, so values never move. A fixed slab commits its memory when it's created and a growing slab commits more as it fills. Every slab takes at least one 4 KB page and 64 KB of address space, plus 8 bytes per slot and one presence bit per slot up to its maximum. Creating one takes a couple of microseconds, so `discard()` and reuse a small World instead of rebuilding it every frame.
 
 ---
 
@@ -226,13 +228,13 @@ Values never move. A pointer to a value stays valid until that value is removed,
 
 `raw_slots()` isn't checked like `iter()`. Fetch it again after adding to see new slots, and don't keep pointers to removed values.
 
-Misuse such as adding during a loop, ownership cycles or going over capacity throws. Destroying a World while it's being iterated terminates the program.
+Misuse such as adding during a loop, ownership cycles or going over capacity throws, and so does running out of memory. Destroying a World while it's being iterated terminates the program, and so does misuse inside a destructor, since a throw can't leave one. If a value's constructor throws, its slot stays unusable until `clear<T>()` or `discard()`, and a rejected `attach_world()` costs a slot the same way.
 
 ---
 
 ## Threads
 
-Separate Worlds can be used on separate threads. A single World isn't thread-safe, so lock it yourself if two threads share it. Type IDs aren't stable across runs, so don't save them.
+Unrelated Worlds can be used on separate threads. A single World isn't thread-safe, so lock it yourself if two threads share it, and treat Worlds that are nested or linked by queued moves as one World. The `World*` from `atom.world()` or `WorldRef::get()` isn't protected if another thread destroys that World. Type IDs aren't stable across runs, so don't save them.
 
 ---
 

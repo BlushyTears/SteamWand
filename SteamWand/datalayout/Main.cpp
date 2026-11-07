@@ -136,7 +136,7 @@ void growableSlabExample() {
     std::cout << "--- Growable Slab Example ---\n";
 
     World effects(64);
-    effects.set_max_capacity<Particle>(100000);
+    effects.allow_growth<Particle>(100000);
 
     Atom<Particle> first = effects.add(Particle{ { 0, 0, 0 }, { 1, 0, 0 }, 2.0f });
     Particle* firstPointer = effects.get(first);
@@ -160,7 +160,7 @@ void spawnWhileIteratingExample() {
     std::cout << "--- Spawn While Iterating Example ---\n";
 
     World effects(16);
-    effects.set_max_capacity<Particle>(100000);
+    effects.allow_growth<Particle>(100000);
 
     for (int i = 0; i < 100; i++) {
         float life = 1.0f;
@@ -193,7 +193,7 @@ void discardExample() {
     std::cout << "--- Discard Example ---\n";
 
     World explosion(16);
-    explosion.set_capacity<Particle>(1000);
+    explosion.set_fixed_capacity<Particle>(1000);
 
     for (int i = 0; i < 1000; i++) {
         explosion.add(Particle{ { 0, 0, 0 }, { 0, 1, 0 }, 1.0f });
@@ -381,12 +381,12 @@ void printUsage() {
 //}
 
 int main(int argc, char* argv[]) {
-    //run_benchmarks();
-    //multipleWorldsExample();
-    //growableSlabExample();
-    //spawnWhileIteratingExample();
-    //discardExample();
-    //worldsInsideTypesExample();
-    //moveBetweenWorldsExample();
+    run_benchmarks();
+    multipleWorldsExample();
+    growableSlabExample();
+    spawnWhileIteratingExample();
+    discardExample();
+    worldsInsideTypesExample();
+    moveBetweenWorldsExample();
     systemsExample();
 }
