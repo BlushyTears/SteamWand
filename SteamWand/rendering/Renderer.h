@@ -30,6 +30,7 @@
 #include <span>
 
 inline constexpr uint8_t g_NumFrames = 3;
+inline constexpr DXGI_FORMAT g_DepthFormat = DXGI_FORMAT_D32_FLOAT;
 
 struct GPUMesh {
     ComPtr<ID3D12Resource> vertexBuffer;
@@ -81,6 +82,9 @@ struct GPUTexture {
 
 struct Renderer {
     ComPtr<ID3D12DescriptorHeap> g_SRVDescriptorHeap;
+    ComPtr<ID3D12DescriptorHeap> g_DSVDescriptorHeap;
+    ComPtr<ID3D12Resource> g_DepthBuffer;
+    ComPtr<ID3D12PipelineState> g_DepthViewPipeline;
     ComPtr<ID3D12GraphicsCommandList> g_CommandList;
     ComPtr<ID3D12CommandAllocator> g_CommandAllocators[g_NumFrames];
     ComPtr<ID3D12CommandQueue> g_CommandQueue;
@@ -101,11 +105,13 @@ struct Renderer {
     std::vector<GPUTexture> textures;
     static constexpr int kMaxTextures = 256;
     uint32_t nextSRVIndex = 0;
+    uint32_t depthSrvIndex = 0;
 
     bool g_VSync = true;
     bool g_TearingSupported = false;
     bool g_UseWarp = false;
     bool g_Wireframe = false;
+    bool g_ShowDepth = false;
 
     bool g_IsInitialized = false;
 
@@ -113,12 +119,14 @@ struct Renderer {
     void SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLine, int nCmdShow);
     void CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC& pso,
         const wchar_t* shaderFile, std::string vertexShaderProgram, std::string pixelShaderProgram,
-        ComPtr<ID3D12PipelineState>& g_GenericPipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE topologyType, D3D12_FILL_MODE fillMode = D3D12_FILL_MODE_SOLID);
+        ComPtr<ID3D12PipelineState>& g_GenericPipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE topologyType, D3D12_FILL_MODE fillMode = D3D12_FILL_MODE_SOLID,
+        bool depthTest = true);
 
     void UpdateRenderTargetViews(ComPtr<ID3D12Device2> device,
         ComPtr<IDXGISwapChain4> swapChain, ComPtr<ID3D12DescriptorHeap> descriptorHeap);
 
     void Resize(uint32_t width, uint32_t height);
+    void ResizeDepthBuffer(uint32_t width, uint32_t height);
 
     ComPtr<ID3D12Resource> CreateUploadBuffer(const void* data, size_t byteCount);
     template<typename Vertex>
@@ -191,6 +199,10 @@ inline void Renderer::Render() {
         CD3DX12_CPU_DESCRIPTOR_HANDLE rtv(g_RTVDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), g_CurrentBackBufferIndex, g_RTVDescriptorSize);
         g_CommandList->ClearRenderTargetView(rtv, clearColor, 0, nullptr);
 
+        // 1.0 = as far away as possible, so the first thing drawn on a pixel always wins
+        D3D12_CPU_DESCRIPTOR_HANDLE dsv = g_DSVDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+        g_CommandList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+
         D3D12_VIEWPORT viewPort = {
             0.0f, 0.0f,
             static_cast<float>(g_ClientWidth),
@@ -206,7 +218,7 @@ inline void Renderer::Render() {
 
         g_CommandList->RSSetViewports(1, &viewPort);
         g_CommandList->RSSetScissorRects(1, &scissor);
-        g_CommandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+        g_CommandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
         g_CommandList->SetGraphicsRootSignature(root_signature.Get());
 
         ID3D12DescriptorHeap* heaps[] = {
@@ -221,6 +233,29 @@ inline void Renderer::Render() {
 
         g_CommandList->SetGraphicsRoot32BitConstants(0, 16, &viewProjection.vec[0].x, 16);
         DrawMeshes();
+
+        // F3: draw the depth buffer over the whole screen in gray
+        if (g_ShowDepth) {
+            // A texture can't be the depth target and a shader input at the same time
+            CD3DX12_RESOURCE_BARRIER toShader = CD3DX12_RESOURCE_BARRIER::Transition(g_DepthBuffer.Get(),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            g_CommandList->ResourceBarrier(1, &toShader);
+
+            g_CommandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+            g_CommandList->SetPipelineState(g_DepthViewPipeline.Get());
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE depthSrv(g_SRVDescriptorHeap->GetGPUDescriptorHandleForHeapStart(), depthSrvIndex, g_SRVDescriptorSize);
+            g_CommandList->SetGraphicsRootDescriptorTable(1, depthSrv);
+
+            // 3 vertices, no vertex buffer: the shader makes them from the vertex index
+            g_CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            g_CommandList->DrawInstanced(3, 1, 0, 0);
+
+            // Back to depth so next frame's clear works
+            CD3DX12_RESOURCE_BARRIER toDepth = CD3DX12_RESOURCE_BARRIER::Transition(g_DepthBuffer.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            g_CommandList->ResourceBarrier(1, &toDepth);
+        }
     }
 
     {
@@ -255,6 +290,8 @@ inline void Renderer::Resize(uint32_t width, uint32_t height) {
 
         Flush(g_CommandQueue, g_Fence, g_FenceValue, g_FenceEvent);
 
+
+
         for (int i = 0; i < g_NumFrames; ++i) {
             g_BackBuffers[i].Reset();
             g_FrameFenceValues[i] = g_FrameFenceValues[g_CurrentBackBufferIndex];
@@ -267,6 +304,8 @@ inline void Renderer::Resize(uint32_t width, uint32_t height) {
         g_CurrentBackBufferIndex = g_SwapChain->GetCurrentBackBufferIndex();
 
         UpdateRenderTargetViews(g_Device, g_SwapChain, g_RTVDescriptorHeap);
+
+        ResizeDepthBuffer(g_ClientWidth, g_ClientHeight);
     }
 }
 
@@ -366,6 +405,37 @@ inline uint32_t Renderer::UploadTexture(const Image& image) {
     return static_cast<uint32_t>(textures.size() - 1);
 }
 
+inline void Renderer::ResizeDepthBuffer(uint32_t width, uint32_t height)
+{
+    D3D12_CLEAR_VALUE clearValue = {};
+    clearValue.Format = g_DepthFormat;
+
+    clearValue.DepthStencil = {1.0f, 0};
+
+    CD3DX12_HEAP_PROPERTIES heap(D3D12_HEAP_TYPE_DEFAULT);
+    auto desc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R32_TYPELESS, width, height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+
+    ThrowIfFailed(g_Device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
+        D3D12_RESOURCE_STATE_DEPTH_WRITE, &clearValue, IID_PPV_ARGS(&g_DepthBuffer)));
+
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsv = {};
+    dsv.Format = g_DepthFormat;
+    dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+
+    D3D12_CPU_DESCRIPTOR_HANDLE g_CPUDescriptorHandle = g_DSVDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+
+    g_Device->CreateDepthStencilView(g_DepthBuffer.Get(), &dsv, g_CPUDescriptorHandle);
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
+    srv.Format = DXGI_FORMAT_R32_FLOAT;
+    srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv.Texture2D.MipLevels = 1;
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE srvSlot(g_SRVDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), depthSrvIndex, g_SRVDescriptorSize);
+    g_Device->CreateShaderResourceView(g_DepthBuffer.Get(), &srv, srvSlot);
+}
+
 inline uint32_t Renderer::CreateMaterial(const wchar_t* shaderFile, const D3D12_INPUT_ELEMENT_DESC* layout, UINT layoutCount) {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso = {};
 
@@ -442,7 +512,7 @@ inline ComPtr<ID3DBlob> CompileShader(const wchar_t* file, const char* entryPoin
 inline void Renderer::CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC& pso, const wchar_t* shaderFile,
     std::string vertexShaderProgram, std::string pixelShaderProgram,
     ComPtr<ID3D12PipelineState>& g_GenericPipelineState, D3D12_PRIMITIVE_TOPOLOGY_TYPE topologyType,
-    D3D12_FILL_MODE fillMode) {
+    D3D12_FILL_MODE fillMode, bool depthTest) {
 
     ComPtr<ID3DBlob> shaderErrors;
 
@@ -467,9 +537,11 @@ inline void Renderer::CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC
         pso.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
     }
 
+    // Default = keep a pixel only if it's closer than what's already there (LESS)
     pso.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-    pso.DepthStencilState.DepthEnable = FALSE;
+    pso.DepthStencilState.DepthEnable = depthTest;
     pso.DepthStencilState.StencilEnable = FALSE;
+    pso.DSVFormat = depthTest ? g_DepthFormat : DXGI_FORMAT_UNKNOWN;
 
     pso.SampleMask = UINT_MAX;
     pso.PrimitiveTopologyType = topologyType;
@@ -541,7 +613,6 @@ inline ComPtr<ID3D12RootSignature> CreateShapeRootSignature(ComPtr<ID3D12Device2
 inline void Renderer::SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLine, int nCmdShow) {
 
     SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-
     const wchar_t* windowClassName = L"DX12WindowClass";
 
     EnableDebugLayer();
@@ -569,6 +640,10 @@ inline void Renderer::SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstanc
     g_SRVDescriptorHeap = CreateDescriptorHeap(g_Device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, kMaxTextures, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE);
 
     g_SRVDescriptorSize = g_Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    g_DSVDescriptorHeap = CreateDescriptorHeap(g_Device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1);
+
+    // The depth buffer's SRV keeps this slot, textures get the ones after it
+    depthSrvIndex = nextSRVIndex++;
 
     UpdateRenderTargetViews(g_Device, g_SwapChain, g_RTVDescriptorHeap);
 
@@ -584,6 +659,13 @@ inline void Renderer::SetupVariables(HINSTANCE hInstance, HINSTANCE hPrevInstanc
 
     g_Fence = CreateFence(g_Device);
     g_FenceEvent = CreateEventHandle();
+
+    ResizeDepthBuffer(g_ClientWidth, g_ClientHeight);
+
+    // F3 view: no vertex buffer, and no depth test since it reads the depth buffer instead
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC depthView = {};
+    CreatePipelinePrimitive(depthView, L"DepthView.hlsl", "VSFullscreen", "PSDepth", g_DepthViewPipeline,
+        D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE, D3D12_FILL_MODE_SOLID, false);
 
     g_IsInitialized = true;
     ::ShowWindow(g_hWnd, SW_SHOW);

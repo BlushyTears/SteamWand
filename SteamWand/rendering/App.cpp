@@ -69,6 +69,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
             renderer.g_Wireframe = !renderer.g_Wireframe;
         }
 
+        if (inputHandler.isKeyPressed(Button::F3)) {
+            renderer.g_ShowDepth = !renderer.g_ShowDepth;
+        }
+
         if (inputHandler.isKeyPressed(Button::V)) {
             renderer.g_VSync = !renderer.g_VSync;
         }

@@ -58,6 +58,7 @@
     <ClInclude Include="Window.h" />
     <!-- Retained shader prototype; the current renderer only clears the window. -->
     <None Include="Shapes.hlsl" />
+    <None Include="DepthView.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\thirdparty\SteamWandThirdParty.vcxproj">

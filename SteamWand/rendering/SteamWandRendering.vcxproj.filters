@@ -24,6 +24,9 @@
     <None Include="Shapes.hlsl">
       <Filter>Resources</Filter>
     </None>
+    <None Include="DepthView.hlsl">
+      <Filter>Resources</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Window.h">
