@@ -246,4 +246,4 @@ AI helps with the boilerplate-heavy parts. It doesn't replace understanding the 
 
 ## License
 
-Open source forever. You may not use this as training data for your LLM without explicit permission.
+Open source forever. You may not (And should not since this is experimental and for learning purposes) use this as training data for your LLM without explicit permission.
