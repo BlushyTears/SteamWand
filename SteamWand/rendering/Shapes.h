@@ -6,18 +6,186 @@
 #include <cmath>
 #include "../math/Vec3.h"
 
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <fstream>
+#include <strstream>
+#include <unordered_map>
+
 template<typename Vertex>
 struct Mesh {
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
 };
 
-namespace Shapes {
+namespace Meshes {
     struct Vertex {
         vec3 position;
         float u;
         float v;
     };
+
+    struct ObjPart {
+        Mesh<Vertex> mesh;
+        std::unordered_map<std::string, size_t> uniqueVertexMap;
+    };
+
+    inline std::unordered_map<std::string, ObjPart> LoadObjFile(const char* path) {
+        std::unordered_map<std::string, ObjPart> buckets;
+
+        std::ifstream file(path);
+
+        std::vector<float> pos;
+        std::vector<float> norm;
+        std::vector<float> uv;
+
+        std::string line;
+        std::string currentMaterial;
+
+        while (std::getline(file, line)) {
+            if (line.empty())
+                continue;
+
+            std::istringstream lineStream(line);
+            std::string token;
+            lineStream >> token;
+
+            if (token == "v") {
+                float x, y, z;
+                lineStream >> x >> y >> z;
+                pos.push_back(x);
+                pos.push_back(y);
+                pos.push_back(z);
+            }
+            else if (token == "vn") {
+                float x, y, z;
+                lineStream >> x >> y >> z;
+                norm.push_back(x);
+                norm.push_back(y);
+                norm.push_back(z);
+            }
+            else if (token == "vt") {
+                float u, v;
+                lineStream >> u >> v;
+                uv.push_back(u);
+                uv.push_back(v);
+            }
+            else if (token == "usemtl") {
+                lineStream >> currentMaterial;
+
+            }
+            else if (token == "f") {
+                ObjPart& bucket = buckets[currentMaterial];
+
+                std::string line;
+                std::getline(lineStream, line);
+
+                std::istringstream ls(line);
+
+                std::vector<size_t> face;
+                std::string vertex;
+
+                while (std::getline(ls, vertex, ' ')) {
+                    if (vertex.empty())
+                        continue;
+
+                    int v = -1;
+                    int t = -1;
+                    int n = -1;
+
+                    std::istringstream vs(vertex);
+                    std::string part;
+
+                    int i = 0;
+                    while (std::getline(vs, part, '/')) {
+                        if (!part.empty()) {
+                            size_t idx = std::stoi(part) - 1;
+                            if (i == 0)
+                                v = idx;
+                            else if (i == 1)
+                                t = idx;
+                            else if (i == 2)
+                                n = idx;
+                        }
+                        i++;
+                    }
+
+                    float vx = pos[v * 3 + 0];
+                    float vy = pos[v * 3 + 1];
+                    float vz = pos[v * 3 + 2];
+
+                    float tu = uv[t * 2 + 0];
+                    float tv = 1.0f - uv[t * 2 + 1]; // needs to flip upside down
+
+                    float nx = norm[n * 3 + 0];
+                    float ny = norm[n * 3 + 1];
+                    float nz = norm[n * 3 + 2];
+
+                    size_t index;
+
+                    auto it = bucket.uniqueVertexMap.find(vertex);
+
+                    // duplicate vertex
+                    if (it != bucket.uniqueVertexMap.end()) {
+                        index = it->second;
+                    }
+
+                    // new vertex
+                    else {
+                        Vertex newV({ vx, vy, vz }, tu, tv);
+
+                        index = bucket.mesh.vertices.size();
+                        bucket.mesh.vertices.push_back(newV);
+
+                        bucket.uniqueVertexMap[vertex] = index;
+                    }
+
+                    face.push_back(index);
+                }
+
+                for (int i = 1; i + 1 < face.size(); i++) {
+                    bucket.mesh.indices.push_back(face[0]);
+                    bucket.mesh.indices.push_back(face[i]);
+                    bucket.mesh.indices.push_back(face[i + 1]);
+                }
+            }
+        }
+
+        file.close();
+        return buckets;
+    }
+
+    inline std::unordered_map<std::string, std::string> LoadMtlFile(const char* path)
+    {
+        std::ifstream file(path);
+        std::string line;
+
+        std::unordered_map<std::string, std::string> texturePaths;
+        std::string currentName;
+
+        while (std::getline(file, line)) {
+            if (line.empty())
+                continue;
+
+            std::istringstream lineStream(line);
+
+            std::string token;
+            lineStream >> token;
+
+            if (token == "newmtl") {
+                lineStream >> currentName;
+            }
+            else if (token == "map_Kd")
+            {
+                std::string texturePath;
+                lineStream >> texturePath;
+                texturePaths[currentName] = texturePath;
+            }
+        }
+
+        return texturePaths;
+    }
 
     inline Mesh<Vertex> MakeCube() {
         Mesh<Vertex> mesh;

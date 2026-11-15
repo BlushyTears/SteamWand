@@ -58,7 +58,7 @@ inline const D3D12_INPUT_ELEMENT_DESC g_ColoredLayout[] = {
 };
 
 template<typename V> struct VertexLayout;
-template<> struct VertexLayout<Shapes::Vertex> {
+template<> struct VertexLayout<Meshes::Vertex> {
     static std::span<const D3D12_INPUT_ELEMENT_DESC> get() { return g_TexturedLayout; }
 };
 
@@ -334,7 +334,6 @@ GPUMesh Renderer::UploadMesh(const Mesh<Vertex>& mesh) {
     GPUMesh gpu;
 
     UINT vertexBytes = static_cast<UINT>(mesh.vertices.size() * sizeof(Vertex));
-
     UINT indexBytes = static_cast<UINT>(mesh.indices.size() * sizeof(uint32_t));
 
     gpu.vertexBuffer = CreateUploadBuffer(mesh.vertices.data(), vertexBytes);

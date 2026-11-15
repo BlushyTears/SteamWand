@@ -29,9 +29,9 @@ void MoveAround() {
 }
 
 void Update(Renderer& renderer) {
-    renderer.meshes[0].rotation.y += 10.0f * GetDeltaTime();
     renderer.meshes[1].rotation.x += 15.0f * GetDeltaTime();
-    renderer.meshes[2].rotation.z += 15.0f * GetDeltaTime();
+    renderer.meshes[2].rotation.y += 15.0f * GetDeltaTime();
+    renderer.meshes[3].rotation.z += 15.0f * GetDeltaTime();
     MoveAround();
 }
 
@@ -42,17 +42,20 @@ void Start(Renderer& renderer) {
     // Reminder: Working directory is bin/x64/Debug/SteamWandMain
     uint32_t checker = renderer.UploadTexture(LoadImageFile("../../../../assets/checker.png"));
 
+    uint32_t sponzaTexture = renderer.UploadTexture(LoadImageFile("../../../../assets/checker.png"));
+
     uint32_t colored = renderer.CreateMaterial<ColoredShapes::Vertex>(L"ColoredShapes.hlsl");
-    uint32_t textured = renderer.CreateMaterial<Shapes::Vertex>(L"Shapes.hlsl");
+    uint32_t textured = renderer.CreateMaterial<Meshes::Vertex>(L"Shapes.hlsl");
 
     GPUMesh coloredCube = renderer.UploadMesh(ColoredShapes::MakeCube());
+    GPUMesh coloredCubeRED = renderer.UploadMesh(ColoredShapes::MakeCube(1.0f, 0.1f, 0));
     renderer.meshes.push_back({ .mesh = coloredCube, .position = vec3(-2, 2, 2), .material = colored });
 
-    auto cubeData1 = Shapes::MakeCube();
+    auto cubeData1 = Meshes::MakeCube();
     GPUMesh cubeMesh1 = renderer.UploadMesh(cubeData1);
     renderer.meshes.push_back({ .mesh = cubeMesh1, .position = vec3(1, 2, 1), .scale = vec3(5, 1, 1), .material = textured, .texture = brick });
 
-    auto cubeData2 = Shapes::MakeCube();
+    auto cubeData2 = Meshes::MakeCube();
     GPUMesh cubeMesh2 = renderer.UploadMesh(cubeData2);
     renderer.meshes.push_back({ .mesh = cubeMesh2, .position = vec3(4, 2, 2), .scale = vec3(1, 2, 1), .material = textured, .texture = checker});
 
@@ -64,7 +67,7 @@ void Start(Renderer& renderer) {
     GPUMesh cubeMesh4 = renderer.UploadMesh(cubeData4);
     renderer.meshes.push_back({ .mesh = cubeMesh4, .position = vec3(-7, 2, 2), .material = colored, .texture = checker });
 
-    auto prismTriangleData = Shapes::MakeTriangularPrism();
+    auto prismTriangleData = Meshes::MakeTriangularPrism();
     GPUMesh prismMesh = renderer.UploadMesh(prismTriangleData);
     renderer.meshes.push_back({ .mesh = prismMesh, .position = vec3(1, -2, 2), .material = textured });
 
@@ -72,13 +75,32 @@ void Start(Renderer& renderer) {
     GPUMesh prismMesh1 = renderer.UploadMesh(prismTriangleData1);
     renderer.meshes.push_back({ .mesh = prismMesh1, .position = vec3(-4, -2, 2), .material = colored });
 
-    auto planeData1 = Shapes::MakePlane();
+    auto planeData1 = Meshes::MakePlane();
     GPUMesh planeMesh1 = renderer.UploadMesh(planeData1);
     renderer.meshes.push_back({ .mesh = planeMesh1, .position = vec3(1, 0, 2), .scale = vec3(3, 1, 1), .material = textured });
 
     auto planeData = ColoredShapes::MakePlane();
     GPUMesh planeMesh = renderer.UploadMesh(planeData);
-    renderer.meshes.push_back({ .mesh = planeMesh, .position = vec3(-4, 0, 2), .material = colored });
+    renderer.meshes.push_back({ .mesh = coloredCubeRED, .position = vec3(-4, 0, 2), .scale = vec3(5, 5, 2), .material = colored});
+
+    auto planeData2 = ColoredShapes::MakePlane();
+    GPUMesh planeMesh2 = renderer.UploadMesh(planeData2);
+    renderer.meshes.push_back({ .mesh = planeMesh2, .position = vec3(-4, 0, 2), .material = colored });
+
+    // Very temporary way of reading .obj files with textures (will be made a lot simpler)
+    auto sponzaParts = Meshes::LoadObjFile("../../../../assets/sponza/sponza.obj");
+    auto texturePaths = Meshes::LoadMtlFile("../../../../assets/sponza/sponza.mtl");
+    for (auto& [name, bucket] : sponzaParts)
+    {
+        uint32_t texture = checker;
+        if (texturePaths.contains(name))
+        {
+            std::string fullPath = "../../../../assets/sponza/" + texturePaths[name];
+            texture = renderer.UploadTexture(LoadImageFile(fullPath.c_str()));
+        }
+        GPUMesh cubeMesh0 = renderer.UploadMesh(bucket.mesh);
+        renderer.meshes.push_back({ .mesh = cubeMesh0, .position = vec3(1, -2, 1), .scale = vec3(0.01f, 0.01f, 0.01f), .material = textured, .texture = texture });
+    }
 }
 
 

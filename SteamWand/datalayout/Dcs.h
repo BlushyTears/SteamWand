@@ -205,6 +205,7 @@ struct RawSlots {
     }
 };
 
+// Where all the magic happens
 struct World {
 private:
     uint32_t cap;                                        // Slot count for types without their own capacity.
@@ -548,7 +549,7 @@ public:
         return View<T, true>(world_state.get(), find_slab<T>());
     }
 
-    // Borrowed raw slots include holes. Check presence before accessing a value.
+    // Borrowed raw slots include holes. We check the presence before accessing a value.
     template<typename T>
     RawSlots<T> raw_slots() const {
         Slab<T>* slab = find_slab<T>();
@@ -559,6 +560,7 @@ public:
     }
 };
 
+// Conventional slab allocator that manages the data
 template<typename T>
 struct Slab : dcs_detail::ISlab {
     struct Removal {
@@ -571,7 +573,7 @@ struct Slab : dcs_detail::ISlab {
     uint32_t max_cap;                     // cap can grow up to this. Equal to cap for a fixed slab.
     uint32_t slot_extent = 0;             // One past the highest slot used since the last clear().
     uint32_t live_count = 0;
-    dcs_detail::Block<T> values;
+    dcs_detail::Block<T> values;          // Data is stored here
     std::vector<uint32_t> generations;    // Bumped on every removal, so older Atoms stop matching.
     std::vector<uint64_t> presence;       // One bit per slot, set while the slot holds a visible value.
     std::vector<uint32_t> free_slots;     // Removed slots that can be reused.
@@ -667,7 +669,7 @@ struct Slab : dcs_detail::ISlab {
         }
         queued_adds.clear();
 
-        // By index, because a value's destructor can queue more.
+        // Index based - because a value's destructor can queue more.
         for (size_t i = 0; i < queued_removals.size(); ++i) {
             Removal removal = queued_removals[i];
             // Skips values that are already gone, for example freed twice.
@@ -688,7 +690,7 @@ struct Slab : dcs_detail::ISlab {
                 destroy(slot);
             }
         }
-        // By index, because a value's destructor can queue more.
+        // Index based - because a value's destructor can queue more.
         for (size_t i = 0; i < queued_adds.size(); ++i) {
             destroy(queued_adds[i]);
         }
