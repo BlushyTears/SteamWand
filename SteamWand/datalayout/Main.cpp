@@ -317,25 +317,29 @@ void printUsage() {
 
 // Some unrelated rendering stuff uncommented, i use put it here for testing purposes
 
-//#include <Windows.h>
-//#include <wrl.h>
-//#include <d3d12.h>
-//#include <dxgi1_6.h>
-//#include <cassert>
-//#include <cstdint>
-//#include <vector>
+#include <Windows.h>
+#include <wrl.h>
+#include <d3d12.h>
+#include <dxgi1_6.h>
+#include <cassert>
+#include <cstdint>
+#include <vector>
+
+#pragma comment(lib, "dxgi.lib")
+
 //
-//#pragma comment(lib, "dxgi.lib")
-//
-//#ifndef ReleaseCom
-//#define ReleaseCom(x) { if(x){ x->Release(); x = 0; } }
-//#endif
-//
-//inline void ThrowIfFailed(HRESULT hr) {
-//    if (FAILED(hr)) {
-//        throw std::exception();
-//    }
-//}
+#ifndef ReleaseCom
+#define ReleaseCom(x) { if(x){ x->Release(); x = 0; } }
+#endif
+
+#include <chrono>
+#include <algorithm>
+#include <cstdio>
+
+#include "..//rendering/d3dx12.h"
+#include "..//rendering/Shapes.h"
+#include "..//rendering/D3DUtil.h"
+
 //
 //inline void LogAdapters()
 //{
@@ -381,12 +385,13 @@ void printUsage() {
 //}
 
 int main(int argc, char* argv[]) {
-    run_benchmarks();
-    multipleWorldsExample();
-    growableSlabExample();
-    spawnWhileIteratingExample();
-    discardExample();
-    worldsInsideTypesExample();
-    moveBetweenWorldsExample();
-    systemsExample();
+
+    //run_benchmarks();
+    //multipleWorldsExample();
+    //growableSlabExample();
+    //spawnWhileIteratingExample();
+    //discardExample();
+    //worldsInsideTypesExample();
+    //moveBetweenWorldsExample();
+    //systemsExample();
 }

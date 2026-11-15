@@ -1,14 +1,8 @@
 # SteamWand
 
-#### A modular, data-oriented C++ engine built on axiomatic composition to gain the benefits of conventional OOP benefits without the undesired inheritence bloat and the likes. Everything data-related is an atom that lives in a defined world of potentially worlds if so wished for. 
+#### A modular, data-oriented C++ engine built on axiomatic composition to gain the benefits of conventional OOP without the undesired inheritance bloat and the likes. Everything data-related is an atom that lives in a defined world of potentially worlds if so wished for. 
 
-#### Rendering is driven by Directx12 and the long-term vision is likely a more plugin-like architechture (Use the parts you want) but for now it remains staticly linked modules and an tied with a main loop, aka no interfaces connecting them.
-
----
-
-## AI Note:
-
-#### The philosophy of SteamWand is LLM-based assistance without reliance/vibe-coding. In other words; AI is used to speed up the more boring/boilerplate-ish parts of the development without inducing AI-related tech debt.
+#### Rendering is driven by DirectX 12 and the long-term vision is likely a more plugin-like architecture (Use the parts you want) but for now it remains statically linked modules tied together with a main loop, aka no interfaces connecting them.
 
 ---
 
@@ -18,9 +12,9 @@ Clone this repo and Open **SteamWand.sln** in Visual Studio 2022 (Other versions
 
 ## Core Philosophy of DCS (Dynamic component system)
 
-I always disliked the implicit relationship of an entity just being an ID and components being contigious lists with each entity owning 1 share of everything. For instance, what if you wanted the same entity to own two components such as two swords: Well either you have to create a new component for that 1 particular need- or you need to expand your component struct to have additional data. Both approaches just feel clunky.
+I always disliked the implicit relationship of an entity just being an ID and components being contiguous lists with each entity owning 1 share of everything. For instance, what if you wanted the same entity to own two components such as two swords: Well either you have to create a new component for that 1 particular need- or you need to expand your component struct to have additional data. Both approaches just feel clunky.
 
-There are numerous other problems like that with ECS that just made it feel like poor design - not to mention it being overkill for most games (A typical game might only have 100 or so active entities at its peak). I also don't like how you can't normally attatch entities with each other very easily (For instance if two enemies merge and combine their capabilities you'd probably have to copy the data of these two enemies, make a new enemy struct with this data, instantiate it, delete the old enemies completely if you were using ECS). 
+There are numerous other problems like that with ECS that just made it feel like poor design - not to mention it being overkill for most games (A typical game might only have 100 or so active entities at its peak). I also don't like how you can't normally attach entities with each other very easily (For instance if two enemies merge and combine their capabilities you'd probably have to copy the data of these two enemies, make a new enemy struct with this data, instantiate it, delete the old enemies completely if you were using ECS). 
 
 I wanted to go against the norm with this system. The whole idea is that you revert the relationship and make things from the ground up, and compose them based on the requirements of your particular needs without having to compromise or perform hacky solutions. Each World owns its data locally, is stored in slabs grouped by type and allocated when you first insert that type. Custom C++ types are registered automatically without you having to do anything. Worlds can be nested, moved and accessed directly for bulk work, or you can have a more flexible system than OOP whilst still being extremely fast.
 
@@ -244,6 +238,12 @@ Dense packing, maybe coroutines, interface for domain-specific functions and ser
 
 ---
 
+## AI Use
+
+AI helps with the boilerplate-heavy parts. It doesn't replace understanding the code, and nothing goes in that I can't maintain myself.
+
+---
+
 ## License
 
-Open source forever. You may not (and should not since I'm new to game engines) use this as training data for your LLM without explicit permission.
+Open source forever. You may not use this as training data for your LLM without explicit permission.

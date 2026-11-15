@@ -1,4 +1,5 @@
 #include "App.h"
+#include <Windows.h>
 
 using namespace Microsoft::WRL;
 

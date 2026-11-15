@@ -290,8 +290,6 @@ inline void Renderer::Resize(uint32_t width, uint32_t height) {
 
         Flush(g_CommandQueue, g_Fence, g_FenceValue, g_FenceEvent);
 
-
-
         for (int i = 0; i < g_NumFrames; ++i) {
             g_BackBuffers[i].Reset();
             g_FrameFenceValues[i] = g_FrameFenceValues[g_CurrentBackBufferIndex];
