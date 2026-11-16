@@ -6,7 +6,7 @@
 
 ---
 
-## Build and run on Windows
+## Build and run on Windows (I currently only care about supporting windows, sorry linux people!)
 
 Clone this repo and Open **SteamWand.sln** in Visual Studio 2022 (Other versions hasn't been tested yet) and right click **SteamWandDataLayout** or **SteamWandMain** and click "Set as startup project". SteamWandMain (the application, linking the SteamWandRendering engine library) should be picked by default so you should be able to skip this step if you just want it to work out of the box. `Dcs.h` includes `<windows.h>`, so define `NOMINMAX` if you use it outside this solution.
 
