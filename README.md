@@ -37,7 +37,8 @@ struct Player { std::string name; int level; };    // any struct can be stored
 World world(64);                                    // room for 64 values of each type
 Atom<Player> hero = world.add(Player{ "Hero", 1 }); // store a value, get an Atom (a handle) back
 
-if (auto player = world.get(hero)) {                // look the value up; nullptr once it's removed
+auto player = world.get(hero);                      // look the value up (nullptr once it's removed)
+if (player) {
     player->level++;
 }
 ```
