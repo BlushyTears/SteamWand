@@ -154,8 +154,8 @@ void growableSlabExample() {
     }
 }
 
-// add() isn't allowed while iterating. Use queue_add() and queue_free() instead;
-// both take effect at cleanup().
+// add() isn't allowed while iterating. Use queue_add() and queue_free() instead.
+// A freed particle drops out of loops and size() right away; new ones appear at cleanup().
 void spawnWhileIteratingExample() {
     std::cout << "--- Spawn While Iterating Example ---\n";
 
@@ -386,12 +386,12 @@ void printUsage() {
 
 int main(int argc, char* argv[]) {
 
-    //run_benchmarks();
-    //multipleWorldsExample();
-    //growableSlabExample();
-    //spawnWhileIteratingExample();
-    //discardExample();
-    //worldsInsideTypesExample();
-    //moveBetweenWorldsExample();
-    //systemsExample();
+    run_benchmarks();
+    multipleWorldsExample();
+    growableSlabExample();
+    spawnWhileIteratingExample();
+    discardExample();
+    worldsInsideTypesExample();
+    moveBetweenWorldsExample();
+    systemsExample();
 }

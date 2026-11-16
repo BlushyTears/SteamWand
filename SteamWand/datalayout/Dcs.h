@@ -35,10 +35,6 @@ template<typename T, bool WithAtoms = false>
 struct View;
 
 namespace dcs_detail {
-    // True when a T&& parameter really is a value we can move from: not a plain x, and not const.
-    template<typename T>
-    concept MovableValue = !std::is_reference_v<T> && !std::is_const_v<T>;
-
     inline std::atomic<uint32_t> next_type_id{ 0 };
 
     template<typename T>
@@ -100,8 +96,7 @@ namespace dcs_detail {
 
         uint64_t add(WorldState* state) {
             std::lock_guard<std::mutex> lock(mutex);
-            uint64_t id = next_id;
-            ++next_id;
+            uint64_t id = next_id++;
             worlds[id] = state;
             return id;
         }
@@ -118,10 +113,11 @@ namespace dcs_detail {
             }
 
             std::lock_guard<std::mutex> lock(mutex);
-            if (!worlds.contains(id)) {
+            auto found = worlds.find(id);
+            if (found == worlds.end()) {
                 return nullptr;
             }
-            return worlds[id];
+            return found->second;
         }
     };
     inline WorldTable world_table;
@@ -354,25 +350,15 @@ public:
         return slab->atom_at(slot);
     }
 
+    // add(x) copies the value in. add(std::move(x)) and add(Enemy{ ... }) move it.
     template<typename T>
-    Atom<T> add(const T& value) {
-        return emplace<T>(value);
-    }
-
-    // For temporaries and std::move(x). A plain add(x) uses the copying one above.
-    template<dcs_detail::MovableValue T>
-    Atom<T> add(T&& value) {
+    Atom<T> add(T value) {
         return emplace<T>(std::move(value));
     }
 
     // Like add(), but safe while iterating. The value appears at the next cleanup().
     template<typename T>
-    Atom<T> queue_add(const T& value) {
-        return queue_add<T>(T(value));
-    }
-
-    template<dcs_detail::MovableValue T>
-    Atom<T> queue_add(T&& value) {
+    Atom<T> queue_add(T value) {
         Slab<T>* slab = slab_for_adding<T>();
         uint32_t slot = slab->construct(std::move(value));
         slab->queued_adds.push_back(slot);
@@ -449,17 +435,19 @@ public:
         return slab->live_count;
     }
 
+    // Removes a value: loops, get() and size() skip it right away, and it's destroyed at the
+    // next cleanup(). Safe while iterating; a reference you already hold stays valid until then.
     template<typename T>
     bool queue_free(const Atom<T>& atom) {
         if (!is_live(atom)) {
             return false;
         }
 
-        find_slab<T>()->queued_removals.push_back({ atom });
+        find_slab<T>()->hide(atom);
         return true;
     }
 
-    // Applies this World's queued adds and removals.
+    // Applies this World's queued adds, moves and frees.
     void cleanup() {
         check_not_iterating();
         dcs_detail::ValueCodeScope scope(world_state.get());
@@ -652,7 +640,14 @@ struct Slab : dcs_detail::ISlab {
         ++live_count;
     }
 
-    // Ends the lifetime of a live or queued value and frees its slot.
+    // Takes a freed value out of sight right away. apply_queued() destroys it later.
+    void hide(const Atom<T>& atom) {
+        presence[atom.slot / 64] &= ~(1ULL << (atom.slot % 64));
+        --live_count;
+        queued_removals.push_back({ atom, WorldRef{} }); // No destination: a free, not a move.
+    }
+
+    // Ends the lifetime of a live, queued or hidden value and frees its slot.
     void destroy(uint32_t slot) {
         if (is_live(slot)) {
             presence[slot / 64] &= ~(1ULL << (slot % 64));
@@ -672,13 +667,21 @@ struct Slab : dcs_detail::ISlab {
         // Index based - because a value's destructor can queue more.
         for (size_t i = 0; i < queued_removals.size(); ++i) {
             Removal removal = queued_removals[i];
-            // Skips values that are already gone, for example freed twice.
-            if (matches(removal.atom)) {
+            uint32_t slot = removal.atom.slot;
+
+            if (removal.destination.id == 0) {
+                // A free. The value is already hidden; skip it if something destroyed it meanwhile.
+                if (generations[slot] == removal.atom.generation) {
+                    destroy(slot);
+                }
+            }
+            else if (matches(removal.atom)) {
+                // A move. Skipped if the value was freed after the move was queued.
                 World* destination = removal.destination.get();
                 if (destination) {
-                    destination->emplace<T>(std::move(values.data[removal.atom.slot]));
+                    destination->emplace<T>(std::move(values.data[slot]));
                 }
-                destroy(removal.atom.slot);
+                destroy(slot);
             }
         }
         queued_removals.clear();
@@ -691,6 +694,13 @@ struct Slab : dcs_detail::ISlab {
             }
         }
         // Index based - because a value's destructor can queue more.
+        for (size_t i = 0; i < queued_removals.size(); ++i) {
+            const Removal& removal = queued_removals[i];
+            // Freed values are hidden, so the loop above didn't reach them.
+            if (removal.destination.id == 0 && generations[removal.atom.slot] == removal.atom.generation) {
+                destroy(removal.atom.slot);
+            }
+        }
         for (size_t i = 0; i < queued_adds.size(); ++i) {
             destroy(queued_adds[i]);
         }
@@ -731,6 +741,11 @@ struct View {
         uint64_t remaining_bits = 0; // Live slots in the current word that are not visited yet.
 
         void move_to_next_live_slot() {
+            // Re-read the current word, so values freed during the loop are skipped too.
+            if (next_word > 0) {
+                remaining_bits &= view->slab->presence[next_word - 1];
+            }
+
             // Skip words that have no live slots left.
             while (remaining_bits == 0) {
                 if (next_word == word_count) {

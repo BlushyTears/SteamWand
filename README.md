@@ -57,7 +57,7 @@ for (PlayerData& p : world.iter<PlayerData>()) {
 }
 ```
 
-`add()` and removal aren't allowed inside a loop, or inside the constructor or destructor of a value in that World, and throw `std::logic_error`. Queue them instead; they take effect at `cleanup()`. `queue_add()` still returns the new Atom right away, though it isn't live until then:
+`add()` and removal aren't allowed inside a loop, or inside the constructor or destructor of a value in that World, and throw `std::logic_error`. Queue them instead. `queue_free()` takes the value out of loops, `get()` and `size()` right away, but destroys it at `cleanup()`, so a reference you're holding stays valid until then. Added values appear at `cleanup()`, and `queue_add()` still returns the new Atom right away:
 
 ```cpp
 for (auto [atom, enemy] : world.iter_atoms<Enemy>()) {
@@ -134,7 +134,7 @@ for (auto [atom, enemy] : chunkA.iter_atoms<Enemy>()) {
 chunkA.cleanup();
 ```
 
-A queued move doesn't give you the new Atom, so use `move_to()` when you need it. If a value is both freed and moved, whichever was queued first wins. If the destination is destroyed before `cleanup()`, the value is destroyed too. If the destination is full or being iterated, `cleanup()` throws each time until that clears, and any queued changes after that move wait.
+A queued move doesn't give you the new Atom, so use `move_to()` when you need it. A value queued to move stays in its World until `cleanup()`. If it's also freed, the free wins. If the destination is destroyed before `cleanup()`, the value is destroyed too. If the destination is full or being iterated, `cleanup()` throws each time until that clears, and any queued changes after that move wait.
 
 ---
 
@@ -204,7 +204,7 @@ The same system can run on several Worlds, each on its own data. Systems stay th
 
 ## Capacity
 
-Every type gets the `cap` from `World(cap)`. Going over throws `std::length_error`, and queued values count toward it. Give a type its own size, or let it grow from `cap`, before its first value:
+Every type gets the `cap` from `World(cap)`. Going over throws `std::length_error`. Queued values count toward it, and freed values keep their slot until `cleanup()`. Give a type its own size, or let it grow from `cap`, before its first value:
 
 ```cpp
 World scene(16);
