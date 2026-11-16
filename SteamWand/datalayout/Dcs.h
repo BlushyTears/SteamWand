@@ -194,10 +194,10 @@ template<typename T>
 struct RawSlots {
     T* data = nullptr;
     const uint64_t* presence = nullptr;
-    uint32_t extent = 0;
+    uint32_t slot_count = 0; // Slots up to the last one used, holes included. Loop to this, not size<T>().
 
     bool is_live(uint32_t slot) const {
-        return slot < extent && dcs_detail::has_bit(presence, slot);
+        return slot < slot_count && dcs_detail::has_bit(presence, slot);
     }
 };
 

@@ -71,21 +71,6 @@ Slabs don't relate to each other, so slot 3 of one type has nothing to do with s
 
 ---
 
-## Raw Slots
-
-```cpp
-RawSlots<int32_t> ints = world.raw_slots<int32_t>();
-for (uint32_t i = 0; i < ints.extent; ++i) {
-    if (ints.is_live(i)) {
-        ints.data[i] += 10;
-    }
-}
-```
-
-`extent` includes holes, so loop to `extent`, not `size<T>()`.
-
----
-
 ## World of Worlds
 
 ```cpp
@@ -220,8 +205,6 @@ An old Atom never matches a reused slot, unless that one slot is reused about 4 
 
 Values never move. A pointer to a value stays valid until that value is removed, even when its World moves or its slab grows. Removed values leave holes that new values fill.
 
-`raw_slots()` isn't checked like `iter()`. Fetch it again after adding to see new slots, and don't keep pointers to removed values.
-
 Misuse such as adding during a loop, ownership cycles or going over capacity throws, and so does running out of memory. A child World freed while it's being iterated waits for a later `cleanup()`. Destroying a World any other way while it's being iterated terminates the program, and so does misuse inside a destructor, since a throw can't leave one. If a value's constructor throws, its slot stays unusable until `clear<T>()` or `discard()`, and a rejected `attach_world()` costs a slot the same way.
 
 ---
@@ -229,6 +212,23 @@ Misuse such as adding during a loop, ownership cycles or going over capacity thr
 ## Threads
 
 Unrelated Worlds can be used on separate threads. A single World isn't thread-safe, so lock it yourself if two threads share it, and treat Worlds that are nested or linked by queued moves as one World. The `World*` from `atom.world()` or `WorldRef::get()` isn't protected if another thread destroys that World. Type IDs aren't stable across runs, so don't save them.
+
+---
+
+## Raw Slots (Advanced)
+
+`raw_slots()` gives you a type's array directly, holes included. Prefer `iter()` unless you need raw pointers.
+
+```cpp
+RawSlots<int32_t> ints = world.raw_slots<int32_t>();
+for (uint32_t i = 0; i < ints.slot_count; ++i) {
+    if (ints.is_live(i)) { // skip holes
+        ints.data[i] += 10;
+    }
+}
+```
+
+`slot_count` includes holes, so it can be bigger than `size<T>()`. Raw slots aren't checked like `iter()`: fetch them again after adding to see new slots, and don't keep pointers to removed values.
 
 ---
 
