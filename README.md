@@ -43,7 +43,7 @@ if (player) {
 }
 ```
 
-An Atom can't reach a different value that later takes the same slot.
+If the hero is removed and a new value later reuses its spot, `get(hero)` still returns `nullptr`, never the new value.
 
 ---
 
