@@ -32,32 +32,29 @@ I wanted to go against the norm with this system. The whole idea is that you rev
 ## Adding and Getting Values
 
 ```cpp
-struct PlayerData { int level; float speed; };
+struct Player { std::string name; int level; };    // any struct can be stored
 
-World world(1024);
+World world(64);                                    // room for 64 values of each type
+Atom<Player> hero = world.add(Player{ "Hero", 1 }); // store a value, get an Atom (a handle) back
 
-Atom<int32_t> score = world.add<int32_t>(42);
-Atom<PlayerData> player = world.add<PlayerData>({ 10, 5.5f });
-Atom<PlayerData> other = world.emplace<PlayerData>(3, 1.0f);
-
-if (PlayerData* p = world.get(player)) {
-    p->level++;
+if (auto player = world.get(hero)) {                // look the value up; nullptr once it's removed
+    player->level++;
 }
 ```
 
-`get()` returns `nullptr` once the value is removed, or if the Atom belongs to another World. Removed slots get reused, but an old Atom doesn't match the new value (unless that one slot is reused 4 billion times). `world.is_live(atom)` and `atom.is_valid()` check whether a value still exists. Stored types have to be movable, even with `emplace()`, and a `const World&` still gives you writable values.
+An Atom can't reach a different value that later takes the same slot.
 
 ---
 
 ## Iteration
 
 ```cpp
-for (PlayerData& p : world.iter<PlayerData>()) {
-    p.speed += 0.1f;
+for (Player& player : world.iter<Player>()) {
+    player.level++;
 }
 ```
 
-`add()` and removal aren't allowed inside a loop, or inside the constructor or destructor of a value in that World, and throw `std::logic_error`. Queue them instead. `queue_free()` takes the value out of loops, `get()` and `size()` right away, but destroys it at `cleanup()`, so a reference you're holding stays valid until then. Added values appear at `cleanup()`, and `queue_add()` still returns the new Atom right away:
+`add()` and removal throw `std::logic_error` inside a loop, or in the constructor or destructor of a value in that World. Queue them instead. `queue_free()` hides the value right away and destroys it at `cleanup()`. Queued adds appear at `cleanup()`:
 
 ```cpp
 for (auto [atom, enemy] : world.iter_atoms<Enemy>()) {
@@ -109,9 +106,9 @@ level.add(Room{});
 level.cleanup_tree(); // also cleans up every room's items
 ```
 
-A World behind a `std::vector` or `unique_ptr` in your type isn't reliably tracked, so `cleanup_tree()`, `update()` and the ownership checks can miss it. Destroying or discarding a World destroys its children too. Nesting thousands of levels deep can overflow the stack when that happens.
+Worlds behind a `std::vector` or `unique_ptr` in your type aren't reliably tracked, so `update()`, `cleanup_tree()` and the ownership checks can miss them. Destroying or discarding a World destroys its children too, which can overflow the stack if they're nested thousands of levels deep.
 
-Get a value's World with `atom.world()`, or keep a `WorldRef` from `world.ref()`. Both follow the World through moves and return `nullptr` once it's destroyed. A raw `World*` doesn't follow moves. Assigning over a World (`world = World(1024)`) ends its old Atoms and WorldRefs too. Anything a value's destructor adds during that assignment lands in the new World.
+`atom.world()` and a `WorldRef` from `world.ref()` follow a World through moves and return `nullptr` once it's destroyed. A raw `World*` doesn't. Assigning over a World (`world = World(1024)`) ends its old Atoms and WorldRefs, and anything a destructor adds during that lands in the new World.
 
 ---
 
@@ -218,11 +215,13 @@ Slabs reserve address space up front, so values never move. A fixed slab commits
 
 ## Memory and Errors
 
+An old Atom never matches a reused slot, unless that one slot is reused about 4 billion times. `world.is_live(atom)` and `atom.is_valid()` check whether a value still exists. `emplace<T>(args...)` builds a value in place, but stored types have to be movable either way. A `const World&` still gives you writable values.
+
 Values never move. A pointer to a value stays valid until that value is removed, even when its World moves or its slab grows. Removed values leave holes that new values fill.
 
 `raw_slots()` isn't checked like `iter()`. Fetch it again after adding to see new slots, and don't keep pointers to removed values.
 
-Misuse such as adding during a loop, ownership cycles or going over capacity throws, and so does running out of memory. Destroying a World while it's being iterated terminates the program, and so does misuse inside a destructor, since a throw can't leave one. If a value's constructor throws, its slot stays unusable until `clear<T>()` or `discard()`, and a rejected `attach_world()` costs a slot the same way.
+Misuse such as adding during a loop, ownership cycles or going over capacity throws, and so does running out of memory. A child World freed while it's being iterated waits for a later `cleanup()`. Destroying a World any other way while it's being iterated terminates the program, and so does misuse inside a destructor, since a throw can't leave one. If a value's constructor throws, its slot stays unusable until `clear<T>()` or `discard()`, and a rejected `attach_world()` costs a slot the same way.
 
 ---
 

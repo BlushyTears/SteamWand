@@ -208,6 +208,8 @@ private:
     std::unique_ptr<dcs_detail::WorldState> world_state; // Never null. A moved-from World gets a fresh, empty one.
     dcs_detail::WorldState* parent = nullptr;            // The World this one lives inside, if any.
     friend struct dcs_detail::WorldState;
+    template<typename>
+    friend struct Slab;
 
     // A World built while a slab constructs a value lives inside that value's World.
     void join_parent() {
@@ -215,6 +217,19 @@ private:
         if (parent) {
             parent->children.push_back(this);
         }
+    }
+
+    // True if this World, or a World inside it, is being iterated.
+    bool is_tree_busy() const {
+        if (world_state->active_views > 0) {
+            return true;
+        }
+        for (const World* child : world_state->children) {
+            if (child->is_tree_busy()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // Values can't be added or removed directly while a loop over this World is open,
@@ -664,18 +679,27 @@ struct Slab : dcs_detail::ISlab {
         }
         queued_adds.clear();
 
+        std::vector<Removal> waiting; // Child Worlds still being iterated wait for a later cleanup().
+
         // Index based - because a value's destructor can queue more.
         for (size_t i = 0; i < queued_removals.size(); ++i) {
             Removal removal = queued_removals[i];
             uint32_t slot = removal.atom.slot;
+            if (generations[slot] != removal.atom.generation) {
+                continue; // Something destroyed it meanwhile.
+            }
 
-            if (removal.destination.id == 0) {
-                // A free. The value is already hidden; skip it if something destroyed it meanwhile.
-                if (generations[slot] == removal.atom.generation) {
-                    destroy(slot);
+            if constexpr (std::is_same_v<T, World>) {
+                if (values.data[slot].is_tree_busy()) {
+                    waiting.push_back(removal);
+                    continue;
                 }
             }
-            else if (matches(removal.atom)) {
+
+            if (removal.destination.id == 0) {
+                destroy(slot); // A free. The value is already hidden.
+            }
+            else if (is_live(slot)) {
                 // A move. Skipped if the value was freed after the move was queued.
                 World* destination = removal.destination.get();
                 if (destination) {
@@ -684,7 +708,7 @@ struct Slab : dcs_detail::ISlab {
                 destroy(slot);
             }
         }
-        queued_removals.clear();
+        queued_removals = std::move(waiting);
     }
 
     void clear() override {
