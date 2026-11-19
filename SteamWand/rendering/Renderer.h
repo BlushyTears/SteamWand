@@ -534,7 +534,7 @@ inline void Renderer::CreatePipelinePrimitive(D3D12_GRAPHICS_PIPELINE_STATE_DESC
         pso.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
     }
 
-    // Default = keep a pixel only if it's closer than what's already there (LESS)
+    // Default = keep a pixel only if it's closer than what's already there
     pso.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
     pso.DepthStencilState.DepthEnable = depthTest;
     pso.DepthStencilState.StencilEnable = FALSE;

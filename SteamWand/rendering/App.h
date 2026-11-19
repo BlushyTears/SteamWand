@@ -34,7 +34,9 @@
 #include "Window.h"
 #include "Input.h"
 
+float GetDeltaTime();
+
 // The application defines these, the engine's wWinMain (App.cpp) calls them
 void Start(Renderer& renderer);
 void Update(Renderer& renderer);
-float GetDeltaTime();
+

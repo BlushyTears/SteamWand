@@ -11,6 +11,24 @@
 inline HWND g_hWnd = nullptr;
 inline RECT g_WindowRect = {};
 inline bool g_FullScreen = false;
+inline InputHandler inputHandler;
+
+inline void ConfineCursorToWindow(HWND hWnd)
+{
+    RECT clientRect;
+
+    if (GetClientRect(hWnd, &clientRect))
+    {
+        POINT topLeft = {clientRect.left, clientRect.top};
+        POINT bottomRight = { clientRect.right, clientRect.bottom };
+
+        ClientToScreen(hWnd, &topLeft);
+        ClientToScreen(hWnd, &bottomRight);
+
+        RECT screenRect = {topLeft.x, topLeft.y, bottomRight.x, bottomRight.y};
+        ClipCursor(&screenRect);
+    }
+}
 
 inline HWND CreateAppWindow(const wchar_t* windowClassName, HINSTANCE hInst,
     const wchar_t* windowTitle, uint32_t width, uint32_t height) {
@@ -43,6 +61,9 @@ inline HWND CreateAppWindow(const wchar_t* windowClassName, HINSTANCE hInst,
     );
 
     assert(hWnd && "Failed To create window");
+
+    ShowCursor(FALSE);
+
     return hWnd;
 }
 
@@ -136,6 +157,19 @@ inline LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM l
 
             renderer->Resize(clientRect.right - clientRect.left, clientRect.bottom - clientRect.top);
         }
+        return 0;
+    }
+    case WM_MOUSEMOVE:
+    {
+        RECT rect;
+        GetClientRect(hwnd, &rect);
+        POINT center = { rect.right / 2, rect.bottom / 2 };
+
+        inputHandler.previousMouseX = center.x;
+        inputHandler.previousMouseY = center.y;
+
+        ClientToScreen(hwnd, &center);
+        SetCursorPos(center.x, center.y);
         return 0;
     }
 

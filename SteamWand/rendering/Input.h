@@ -146,7 +146,6 @@ void CheckInputs(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
 
         mouseX = GET_X_LPARAM(lParam);
         mouseY = GET_Y_LPARAM(lParam);
-
     }
 
     switch (message) {
@@ -238,5 +237,4 @@ void CheckInputs(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     int previousMouseY = 0;
 };
 
-// This should probably be stored somewhere else, but since we're early it seems pointless to think ahead for refactors like this
-inline InputHandler inputHandler;
+

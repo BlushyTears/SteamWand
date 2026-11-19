@@ -1,38 +1,12 @@
 #include "../rendering/App.h"
-
-void MoveAround() {
-    if (inputHandler.isKeyDown(Button::MouseRight) && !inputHandler.isKeyPressed(Button::MouseRight)) {
-        float sensitivity = 0.003f;
-
-        g_CameraYaw += (inputHandler.mouseX - inputHandler.previousMouseX) * sensitivity;
-        g_CameraPitch -= (inputHandler.mouseY - inputHandler.previousMouseY) * sensitivity;
-
-        g_CameraPitch = std::clamp(g_CameraPitch, -1.5f, 1.5f);
-    }
-
-    if (inputHandler.isKeyDown(Button::MouseRight)) {
-        float step = 3.0f * GetDeltaTime();
-
-        vec3 forward = GetCameraForward();
-        vec3 right(std::cos(g_CameraYaw), 0.0f, -std::sin(g_CameraYaw));
-
-        vec3 movement(0.0f, 0.0f, 0.0f);
-
-        if (inputHandler.isKeyDown(Button::W)) movement += forward;
-        if (inputHandler.isKeyDown(Button::S)) movement -= forward;
-        if (inputHandler.isKeyDown(Button::A)) movement -= right;
-        if (inputHandler.isKeyDown(Button::D)) movement += right;
-
-        if (movement.dot(movement) > 0.0f)
-            g_CameraPosition += normalize(movement) * step;
-    }
-}
+#include "Misc.h"
 
 void Update(Renderer& renderer) {
     renderer.meshes[1].rotation.x += 15.0f * GetDeltaTime();
     renderer.meshes[2].rotation.y += 15.0f * GetDeltaTime();
     renderer.meshes[3].rotation.z += 15.0f * GetDeltaTime();
-    MoveAround();
+
+    Freecam();
 }
 
 void Start(Renderer& renderer) {
