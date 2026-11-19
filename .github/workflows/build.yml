@@ -1,0 +1,61 @@
+# Builds the whole solution on fresh Windows machines on every push and pull request,
+# so "clone it and build it" problems show up here before they show up on another PC.
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: VS 2026
+            runner: windows-latest
+          - name: VS 2022
+            runner: windows-2022
+          # VS 2019's compiler, installed into VS 2022 on the runner (there is no VS 2019 runner any more)
+          - name: VS 2019 compiler (v142)
+            runner: windows-2022
+            toolset: v142
+            component: Microsoft.VisualStudio.Component.VC.14.29.16.11.x86.x64
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install ${{ matrix.toolset }} compiler
+        if: matrix.component
+        shell: pwsh
+        run: |
+          $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer"
+          $vsPath = & "$installer\vswhere.exe" -latest -property installationPath
+          $installArgs = "modify --installPath `"$vsPath`" --add ${{ matrix.component }} --quiet --norestart --nocache"
+          $proc = Start-Process -FilePath "$installer\vs_installer.exe" -ArgumentList $installArgs -Wait -PassThru
+          # 3010 = success, reboot recommended
+          if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) { exit $proc.ExitCode }
+          # The installer also exits with 0 when it can't find the component, so check it actually arrived
+          if (-not (Get-ChildItem "$vsPath\MSBuild\Microsoft\VC\*\Platforms\x64\PlatformToolsets\${{ matrix.toolset }}" -ErrorAction SilentlyContinue)) {
+            Write-Host "::error::${{ matrix.toolset }} toolset is not installed after running the VS installer"
+            exit 1
+          }
+
+      - name: Build Debug and Release
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          & $vswhere -latest -property displayName
+          $msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1
+          $extra = @()
+          if ("${{ matrix.toolset }}") { $extra += "/p:PlatformToolset=${{ matrix.toolset }}" }
+          foreach ($cfg in "Debug", "Release") {
+            Write-Host "::group::$cfg"
+            & $msbuild SteamWand.sln /m /nologo /v:minimal "/p:Configuration=$cfg" /p:Platform=x64 @extra
+            $code = $LASTEXITCODE
+            Write-Host "::endgroup::"
+            if ($code -ne 0) { Write-Host "::error::$cfg build failed"; exit $code }
+          }

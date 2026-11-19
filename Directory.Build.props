@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSBuild and Visual Studio load this file automatically for every project under this folder,
+  before the project's own settings.
+
+  Nothing in this solution names a specific Visual Studio or Windows SDK version, so it builds
+  with whatever is installed. Keep it that way: if Visual Studio offers to "Retarget solution",
+  say no, and don't pick versions in the property pages (Visual Studio only writes those for
+  whichever configuration, Debug or Release, happens to be selected).
+
+  The compiler toolset is set in each .vcxproj as $(DefaultPlatformToolset). It can't go here
+  because Visual Studio defines that value after this file is loaded.
+-->
+<Project>
+  <PropertyGroup>
+    <!-- "10.0" means the newest Windows 10/11 SDK installed on the machine -->
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+</Project>

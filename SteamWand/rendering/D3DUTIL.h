@@ -21,9 +21,14 @@ inline void ThrowIfFailed(HRESULT hr) {
 
 inline void EnableDebugLayer() {
 #if defined (_DEBUG)
+    // The debug layer comes from the optional Windows feature "Graphics Tools", which isn't installed by default.
+    // Without it, run without D3D12 validation instead of failing to start.
     ComPtr<ID3D12Debug> debugInterface;
-    ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(&debugInterface)));
-    debugInterface->EnableDebugLayer();
+    if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugInterface)))) {
+        debugInterface->EnableDebugLayer();
+    } else {
+        OutputDebugStringW(L"D3D12 debug layer unavailable, running without it. To enable it, install the optional Windows feature 'Graphics Tools'.\n");
+    }
 #endif
 }
 

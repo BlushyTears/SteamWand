@@ -10,7 +10,6 @@
 #include <sstream>
 #include <string>
 #include <fstream>
-#include <strstream>
 #include <unordered_map>
 
 template<typename Vertex>
