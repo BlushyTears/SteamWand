@@ -67,7 +67,7 @@ template<> struct VertexLayout<ColoredShapes::Vertex> {
 };
 
 struct RenderObject {
-    GPUMesh mesh;
+    uint32_t mesh;
     vec3 position;
     vec3 scale = {1, 1, 1};
     vec3 rotation = {0, 0, 0};
@@ -102,6 +102,7 @@ struct Renderer {
     HANDLE g_FenceEvent;
 
     std::vector<RenderObject> meshes;
+    std::vector<GPUMesh> gpuMeshes;
     std::vector<GPUTexture> textures;
     static constexpr int kMaxTextures = 256;
     uint32_t nextSRVIndex = 0;
@@ -129,19 +130,17 @@ struct Renderer {
     void ResizeDepthBuffer(uint32_t width, uint32_t height);
 
     ComPtr<ID3D12Resource> CreateUploadBuffer(const void* data, size_t byteCount);
-    template<typename Vertex>
-
-    GPUMesh UploadMesh(const Mesh<Vertex>& mesh);
+    uint32_t UploadMesh(const void* vertices, UINT vertexBytes, UINT stride, const uint32_t* indices, UINT indexCount);
     uint32_t UploadTexture(const Image& image);
     void DrawMesh(const RenderObject& obj);
     void DrawMeshes();
 
-    uint32_t CreateMaterial(const wchar_t* shaderFile, const D3D12_INPUT_ELEMENT_DESC* layout, UINT layoutCount);
+    uint32_t UploadMaterial(const wchar_t* shaderFile, const D3D12_INPUT_ELEMENT_DESC* layout, UINT layoutCount);
 
     template<typename V>
-    uint32_t CreateMaterial(const wchar_t* shaderFile) {
+    uint32_t UploadMaterial(const wchar_t* shaderFile) {
         auto layout = VertexLayout<V>::get();
-        return CreateMaterial(shaderFile, layout.data(), static_cast<UINT>(layout.size()));
+        return UploadMaterial(shaderFile, layout.data(), static_cast<UINT>(layout.size()));
     }
 
     void Shutdown();
@@ -329,27 +328,26 @@ inline ComPtr<ID3D12Resource> Renderer::CreateUploadBuffer(const void* data, siz
     return buffer;
 }
 
-template<typename Vertex>
-GPUMesh Renderer::UploadMesh(const Mesh<Vertex>& mesh) {
+inline uint32_t Renderer::UploadMesh(const void* vertices, UINT vertexBytes, UINT stride, const uint32_t* indices, UINT indexCount) {
     GPUMesh gpu;
 
-    UINT vertexBytes = static_cast<UINT>(mesh.vertices.size() * sizeof(Vertex));
-    UINT indexBytes = static_cast<UINT>(mesh.indices.size() * sizeof(uint32_t));
+    UINT indexBytes = indexCount * sizeof(uint32_t);
 
-    gpu.vertexBuffer = CreateUploadBuffer(mesh.vertices.data(), vertexBytes);
-    gpu.indexBuffer = CreateUploadBuffer(mesh.indices.data(), indexBytes);
+    gpu.vertexBuffer = CreateUploadBuffer(vertices, vertexBytes);
+    gpu.indexBuffer = CreateUploadBuffer(indices, indexBytes);
 
     gpu.vertexView.BufferLocation = gpu.vertexBuffer->GetGPUVirtualAddress();
     gpu.vertexView.SizeInBytes = vertexBytes;
-    gpu.vertexView.StrideInBytes = sizeof(Vertex);
+    gpu.vertexView.StrideInBytes = stride;
 
     gpu.indexView.BufferLocation = gpu.indexBuffer->GetGPUVirtualAddress();
     gpu.indexView.SizeInBytes = indexBytes;
     gpu.indexView.Format = DXGI_FORMAT_R32_UINT;
 
-    gpu.indexCount = static_cast<UINT>(mesh.indices.size());
+    gpu.indexCount = indexCount;
 
-    return gpu;
+    gpuMeshes.push_back(gpu);
+    return static_cast<uint32_t>(gpuMeshes.size() - 1);
 }
 
 inline uint32_t Renderer::UploadTexture(const Image& image) {
@@ -433,7 +431,7 @@ inline void Renderer::ResizeDepthBuffer(uint32_t width, uint32_t height)
     g_Device->CreateShaderResourceView(g_DepthBuffer.Get(), &srv, srvSlot);
 }
 
-inline uint32_t Renderer::CreateMaterial(const wchar_t* shaderFile, const D3D12_INPUT_ELEMENT_DESC* layout, UINT layoutCount) {
+inline uint32_t Renderer::UploadMaterial(const wchar_t* shaderFile, const D3D12_INPUT_ELEMENT_DESC* layout, UINT layoutCount) {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso = {};
 
     pso.InputLayout = { layout, layoutCount};
@@ -456,13 +454,14 @@ inline void Renderer::DrawMeshes() {
 
 inline void Renderer::DrawMesh(const RenderObject& obj) {
     const Material& mat = materials[obj.material];
+    const GPUMesh& mesh = gpuMeshes[obj.mesh];
     g_CommandList->SetPipelineState(g_Wireframe ? mat.wireframe.Get() : mat.solid.Get());
 
     g_CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-    g_CommandList->IASetVertexBuffers(0, 1, &obj.mesh.vertexView);
+    g_CommandList->IASetVertexBuffers(0, 1, &mesh.vertexView);
 
-    g_CommandList->IASetIndexBuffer(&obj.mesh.indexView);
+    g_CommandList->IASetIndexBuffer(&mesh.indexView);
 
     mat4 scale;
     scale.vec[0].x = obj.scale.x;
@@ -484,7 +483,7 @@ inline void Renderer::DrawMesh(const RenderObject& obj) {
     g_CommandList->SetGraphicsRootDescriptorTable(1, srv);
 
     g_CommandList->SetGraphicsRoot32BitConstants(0, 16, &model.vec[0].x, 0);
-    g_CommandList->DrawIndexedInstanced(obj.mesh.indexCount, 1, 0, 0, 0);
+    g_CommandList->DrawIndexedInstanced(mesh.indexCount, 1, 0, 0, 0);
 }
 
 inline ComPtr<ID3DBlob> CompileShader(const wchar_t* file, const char* entryPoint, const char* target) {

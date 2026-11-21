@@ -4,6 +4,34 @@
 using namespace Microsoft::WRL;
 
 static std::chrono::duration<float> deltaTime{};
+static Renderer renderer;
+
+uint32_t CreateTexture(const Image& image)
+{
+    return renderer.UploadTexture(image);
+}
+
+uint32_t CreateMaterial(const wchar_t* shaderFile, const D3D12_INPUT_ELEMENT_DESC* layout, UINT layoutCount)
+{
+    return renderer.UploadMaterial(shaderFile, layout, layoutCount);
+}
+
+uint32_t CreateMesh(const void* vertices, UINT vertexBytes, UINT stride, const uint32_t* indices, UINT indexCount)
+{
+    return renderer.UploadMesh(vertices, vertexBytes, stride, indices, indexCount);
+}
+
+uint32_t Spawn(const RenderObject& obj)
+{
+    renderer.meshes.push_back(obj);
+    return static_cast<uint32_t>(renderer.meshes.size() - 1);
+}
+
+// Use the reference right away, a later Spawn can move the vector and leave it dangling
+RenderObject& GetRenderObject(uint32_t id)
+{
+    return renderer.meshes[id];
+}
 
 float GetDeltaTime() {
     return deltaTime.count();
@@ -42,11 +70,9 @@ static void UpdateFrameTime() {
 _Use_decl_annotations_
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLine, int nCmdShow) {
 
-    Renderer renderer;
-
     renderer.SetupVariables(hInstance, hPrevInstance, lpCmdLine, nCmdShow);
 
-    Start(renderer);
+    Start();
 
     MSG msg = {};
 
@@ -83,7 +109,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
             SetFullScreen(!g_FullScreen);
         }
 
-        Update(renderer);
+        Update();
         renderer.Render();
     }
 
