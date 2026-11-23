@@ -4,6 +4,8 @@
 
 #include <iostream>
 
+#include "../physics/Collision.h"
+
 int main(int argc, char* argv[]) {
 
     vec3 myVec = { 1, 2, 3 };
@@ -11,7 +13,9 @@ int main(int argc, char* argv[]) {
 
     float d = myVec.dot(myVec2);
 
-    std::cout << "dot " << d;
+    //std::cout << "dot " << d;
+
+    std::cout << " add " << add();
 
     return 0;
 }

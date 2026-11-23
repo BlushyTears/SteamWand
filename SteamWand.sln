@@ -22,6 +22,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SteamWandMath", "SteamWand\
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SteamWandThirdParty", "SteamWand\thirdparty\SteamWandThirdParty.vcxproj", "{86D4693E-221E-453B-BDC1-3E11DE96A7BB}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SteamWandPhysics", "SteamWand\physics\SteamWandPhysics.vcxproj", "{940A9B1B-0917-41F7-9206-9D40B259A702}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -48,6 +50,10 @@ Global
 		{86D4693E-221E-453B-BDC1-3E11DE96A7BB}.Debug|x64.Build.0 = Debug|x64
 		{86D4693E-221E-453B-BDC1-3E11DE96A7BB}.Release|x64.ActiveCfg = Release|x64
 		{86D4693E-221E-453B-BDC1-3E11DE96A7BB}.Release|x64.Build.0 = Release|x64
+		{940A9B1B-0917-41F7-9206-9D40B259A702}.Debug|x64.ActiveCfg = Debug|x64
+		{940A9B1B-0917-41F7-9206-9D40B259A702}.Debug|x64.Build.0 = Debug|x64
+		{940A9B1B-0917-41F7-9206-9D40B259A702}.Release|x64.ActiveCfg = Release|x64
+		{940A9B1B-0917-41F7-9206-9D40B259A702}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
